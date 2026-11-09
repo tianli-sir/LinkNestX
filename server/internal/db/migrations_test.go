@@ -72,7 +72,7 @@ func TestMigrationHistoryAndExistingDatabaseUpgrade(t *testing.T) {
 		}
 	}
 	var count int
-	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 2 {
+	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 3 {
 		t.Fatalf("migration history=%d err=%v", count, err)
 	}
 	if err := conn.QueryRow("SELECT count(*) FROM messages").Scan(&count); err != nil {
