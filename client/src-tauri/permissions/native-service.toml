@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-native-service"
+description = "Allow the bundled desktop interface to manage authenticated native transfers."
+commands.allow = ["app_version", "login", "logout", "api_request", "start_download", "start_upload", "pause_transfer", "resume_transfer", "list_transfers", "get_sharing_policy", "set_sharing_policy", "send_server_event", "pick_upload_file", "pick_download_destination"]

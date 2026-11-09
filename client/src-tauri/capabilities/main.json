@@ -1,0 +1,8 @@
+{
+  "$schema":"../gen/schemas/desktop-schema.json",
+  "identifier":"main-local",
+  "description":"Native access only for the bundled LinkNestX main window. Remote pages receive no native permissions.",
+  "windows":["main"],
+  "local":true,
+  "permissions":["core:default","allow-native-service"]
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-sharing-policy"
+description = "Enables the get_sharing_policy command without any pre-configured scope."
+commands.allow = ["get_sharing_policy"]
+
+[[permission]]
+identifier = "deny-get-sharing-policy"
+description = "Denies the get_sharing_policy command without any pre-configured scope."
+commands.deny = ["get_sharing_policy"]
