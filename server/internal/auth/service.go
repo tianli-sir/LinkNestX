@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -159,7 +160,7 @@ func validateCreateUser(in CreateUserInput) (CreateUserInput, error) {
 	if in.Username == "" || in.Password == "" {
 		return in, fmt.Errorf("%w: username and password are required", ErrInvalidInput)
 	}
-	if len(in.Password) < 8 {
+	if utf8.RuneCountInString(in.Password) < 8 {
 		return in, fmt.Errorf("%w: password must be at least 8 characters", ErrInvalidInput)
 	}
 	return in, nil

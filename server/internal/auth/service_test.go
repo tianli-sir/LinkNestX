@@ -329,3 +329,38 @@ func TestDeviceOwnershipAndUUIDs(t *testing.T) {
 		t.Fatalf("owner device reuse: %v", err)
 	}
 }
+
+func TestCreateUserPasswordCharacterMinimum(t *testing.T) {
+	service := testService(t)
+	_, actor := adminSession(t, service)
+	for _, test := range []struct {
+		name     string
+		password string
+		valid    bool
+	}{
+		{name: "three_chinese_characters", password: "一二三", valid: false},
+		{name: "eight_chinese_characters", password: "一二三四五六七八", valid: true},
+		{name: "whitespace_counts_and_is_preserved", password: " 一二三四五六 ", valid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			user, err := service.CreateUser(actor, CreateUserInput{Username: test.name, Password: test.password})
+			if !test.valid {
+				if !errors.Is(err, ErrInvalidInput) {
+					t.Fatalf("short Unicode password error = %v, want invalid input", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("eight-character password rejected: %v", err)
+			}
+			if _, err := service.Login(context.Background(), LoginInput{Username: user.Username, Password: test.password}); err != nil {
+				t.Fatalf("original password login: %v", err)
+			}
+			if test.name == "whitespace_counts_and_is_preserved" {
+				if _, err := service.Login(context.Background(), LoginInput{Username: user.Username, Password: "一二三四五六"}); !errors.Is(err, ErrInvalidCredentials) {
+					t.Fatalf("trimmed password error = %v, want invalid credentials", err)
+				}
+			}
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -70,7 +71,7 @@ func Load() (Config, error) {
 	if (cfg.BootstrapAdminUsername == "") != (cfg.BootstrapAdminPassword == "") {
 		return Config{}, fmt.Errorf("bootstrap administrator username and password must be provided together")
 	}
-	if cfg.BootstrapAdminPassword != "" && len(cfg.BootstrapAdminPassword) < 8 {
+	if cfg.BootstrapAdminPassword != "" && utf8.RuneCountInString(cfg.BootstrapAdminPassword) < 8 {
 		return Config{}, fmt.Errorf("bootstrap administrator password must be at least 8 characters")
 	}
 
