@@ -1,0 +1,30 @@
+:root {
+  --ln-color-background: #f5f7fb;
+  --ln-color-surface: #ffffff;
+  --ln-color-text: #202b40;
+  --ln-color-muted: #58677d;
+  --ln-color-primary: #4053af;
+  --ln-color-primary-hover: #354696;
+  --ln-color-primary-soft: #edf0fc;
+  --ln-color-sharing: #177864;
+  --ln-color-sharing-soft: #edf7f3;
+  --ln-color-border: #e0e5ee;
+  --ln-color-input-border: #8793a5;
+  --ln-color-error: #b0323c;
+  --ln-color-error-soft: #fff3f3;
+  --ln-font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --ln-font-body: 14px;
+  --ln-font-secondary: 12px;
+  --ln-font-heading: 22px;
+  --ln-radius-control: 8px;
+  --ln-space-1: 4px;
+  --ln-space-2: 8px;
+  --ln-space-3: 12px;
+  --ln-space-4: 16px;
+  --ln-space-5: 20px;
+  --ln-space-6: 24px;
+  --ln-space-8: 32px;
+  --ln-rail-width: 240px;
+  --ln-header-height: 64px;
+  --ln-motion-fast: 140ms;
+}
