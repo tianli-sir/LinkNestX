@@ -364,3 +364,30 @@ func TestCreateUserPasswordCharacterMinimum(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateActorRechecksIdentityRevocationAndExpiry(t *testing.T) {
+	s := testService(t)
+	now := time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)
+	s.SetClock(func() time.Time { return now })
+	session, ctx := adminSession(t, s)
+	if err := s.ValidateActor(ctx, session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateActor(ctx, "another-user"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("spoof=%v", err)
+	}
+	if err := s.ValidateActor(context.Background(), session.User.ID); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("unverified=%v", err)
+	}
+	now = now.Add(15 * time.Minute)
+	if err := s.ValidateActor(ctx, session.User.ID); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("expired=%v", err)
+	}
+	now = now.Add(-15 * time.Minute)
+	if err := s.RevokeSession(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateActor(ctx, session.User.ID); !errors.Is(err, ErrSessionRevoked) {
+		t.Fatalf("revoked=%v", err)
+	}
+}

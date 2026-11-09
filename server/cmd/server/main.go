@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/chat"
 	"github.com/linknestx/linknestx/server/internal/config"
 	"github.com/linknestx/linknestx/server/internal/db"
+	"github.com/linknestx/linknestx/server/internal/groups"
 	httpapi "github.com/linknestx/linknestx/server/internal/http"
 )
 
@@ -47,9 +49,14 @@ func run() error {
 		}
 	}
 
+	groupService := groups.NewGroupService(conn, service)
+	chatService := chat.NewChatService(conn, service, groupService)
+	hub := chat.NewHub(chatService)
+	defer hub.Close()
+
 	server := &stdhttp.Server{
 		Addr:              cfg.BindAddress,
-		Handler:           httpapi.NewRouterWithAuth(cfg, service),
+		Handler:           httpapi.NewRouterWithServices(cfg, service, groupService, chatService, hub),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -59,6 +66,7 @@ func run() error {
 	go func() {
 		defer close(shutdownDone)
 		<-shutdownContext.Done()
+		hub.Close()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdown); err != nil {

@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/chat"
 	"github.com/linknestx/linknestx/server/internal/config"
+	"github.com/linknestx/linknestx/server/internal/groups"
 )
 
 // HealthResponse is the stable response returned by GET /healthz.
@@ -46,6 +48,19 @@ func NewRouterWithAuth(cfg config.Config, service *auth.AuthService) stdhttp.Han
 	if service != nil {
 		NewAuthHandlers(service).Register(mux)
 	}
+	return mux
+}
+
+// NewRouterWithServices composes caller-owned feature services. The caller must
+// close hub during shutdown because upgraded sockets are not owned by HTTP.
+func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.GroupService, c *chat.ChatService, hub *chat.Hub) stdhttp.Handler {
+	mux := stdhttp.NewServeMux()
+	mux.Handle("/", NewRouterWithAuth(cfg, a))
+	NewGroupHandlers(g).Register(mux, a)
+	ch := NewChatHandlers(c)
+	mux.Handle("GET /api/v1/groups/{groupID}/messages", RequireAuth(a, stdhttp.HandlerFunc(ch.List)))
+	mux.Handle("POST /api/v1/groups/{groupID}/messages", RequireAuth(a, stdhttp.HandlerFunc(ch.Append)))
+	mux.Handle("GET /api/v1/ws", RequireAuth(a, hub))
 	return mux
 }
 

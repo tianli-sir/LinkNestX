@@ -35,7 +35,7 @@ func TestRunReportsMigrationError(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("LINKNESTX_SQLITE_PATH", path)
-	if err := run(); err == nil || !strings.Contains(err.Error(), "apply initial migration") {
+	if err := run(); err == nil || !strings.Contains(err.Error(), "apply migration") {
 		t.Fatalf("migration error=%v", err)
 	}
 }

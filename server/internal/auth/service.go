@@ -254,6 +254,7 @@ func (s *AuthService) RevokeSession(ctx context.Context, id string) error {
 	}
 	return s.repo.revokeSession(ctx, id, s.now().UTC())
 }
+
 func (s *AuthService) User(ctx context.Context, id string) (User, error) {
 	return s.repo.userByID(ctx, id)
 }
@@ -397,4 +398,22 @@ func SessionIDFromContext(ctx context.Context) string {
 func DeviceIDFromContext(ctx context.Context) string {
 	actor, _ := ctx.Value(principalKey{}).(principal)
 	return actor.deviceID
+}
+
+// ValidateActor revalidates the private, verified principal, including access
+// expiry and the current backing session. Long-lived connections must call it
+// for every operation instead of trusting the original handshake context.
+func (s *AuthService) ValidateActor(ctx context.Context, actorID string) error {
+	actor, ok := ctx.Value(principalKey{}).(principal)
+	if !ok || actorID == "" || actor.user.ID != actorID {
+		return ErrUnauthorized
+	}
+	uid, _, _, _, err := s.AuthenticateAccessToken(ctx, actor.accessToken)
+	if err != nil {
+		return err
+	}
+	if uid != actorID {
+		return ErrUnauthorized
+	}
+	return nil
 }

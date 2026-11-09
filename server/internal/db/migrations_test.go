@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/linknestx/linknestx/server/migrations"
 )
 
 func TestMigrationsPackagedAndIdempotent(t *testing.T) {
@@ -49,5 +50,32 @@ func TestMigrationsPackagedAndIdempotent(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("roles=%d, want 2", count)
+	}
+}
+
+func TestMigrationHistoryAndExistingDatabaseUpgrade(t *testing.T) {
+	conn, err := Open(filepath.Join(t.TempDir(), "upgrade.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	initial, err := migrations.Files.ReadFile("001_initial.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(string(initial)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := ApplyMigrations(context.Background(), conn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int
+	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 2 {
+		t.Fatalf("migration history=%d err=%v", count, err)
+	}
+	if err := conn.QueryRow("SELECT count(*) FROM messages").Scan(&count); err != nil {
+		t.Fatalf("chat table unavailable: %v", err)
 	}
 }

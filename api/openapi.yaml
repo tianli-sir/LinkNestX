@@ -73,6 +73,149 @@ paths:
         '400': { description: Invalid account input }
         '401': { description: Authentication required }
         '403': { description: Administrator role required }
+  /api/v1/groups:
+    get:
+      operationId: listGroups
+      summary: List groups the current account belongs to
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Groups in creation order
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Group' } } }
+        '401': { description: Authentication required }
+    post:
+      operationId: createGroup
+      summary: Create a group (administrators only)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/CreateGroupRequest' } }
+      responses:
+        '201':
+          description: Group created with its first owner
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Group' } }
+        '400': { description: Invalid group name }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+        '404': { description: Owner account does not exist or is disabled }
+  /api/v1/groups/{groupId}/members:
+    parameters:
+      - { name: groupId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listGroupMembers
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Members of the current group
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GroupMember' } } }
+        '401': { description: Authentication required }
+        '403': { description: Current group membership required }
+    post:
+      operationId: addGroupMember
+      summary: Add a member or change their role (group owners or administrators)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/GroupMemberRequest' } }
+      responses:
+        '204': { description: Membership saved }
+        '400': { description: Invalid role or last owner would be demoted }
+        '401': { description: Authentication required }
+        '403': { description: Group owner or administrator required }
+        '404': { description: Group or enabled target account does not exist }
+  /api/v1/groups/{groupId}/members/{userId}:
+    parameters:
+      - { name: groupId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: removeGroupMember
+      summary: Remove membership immediately (group owners or administrators)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Membership absent; existing history remains }
+        '400': { description: The last owner cannot be removed }
+        '401': { description: Authentication required }
+        '403': { description: Group owner or administrator required }
+        '404': { description: Group does not exist }
+  /api/v1/groups/{groupId}/messages:
+    parameters:
+      - { name: groupId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listGroupMessages
+      summary: Fetch durable history after a group cursor
+      description: >-
+        Messages are returned in ascending commit sequence, including retained
+        tombstones. An absent cursor starts at the oldest message. Save nextCursor
+        even when hasMore is false and use it to resume after disconnecting.
+        Connect the WebSocket first, then fetch history and merge by message ID
+        and sequence; this closes the gap between catch-up and live delivery.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque cursor from this group's previous page or message }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Ordered history page
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/MessagePage' } }
+        '400': { description: Invalid cursor or limit }
+        '401': { description: Authentication required }
+        '403': { description: Current group membership required }
+    post:
+      operationId: appendGroupMessage
+      summary: Persist a message; retry with the same clientMessageId
+      description: >-
+        clientMessageId is unique per sender across groups. A retry returns the
+        original message. Reuse with another group or different live content
+        returns 409. Expired IDs return their content-free tombstone and never
+        restore their original body. Sender and group are derived from the
+        authenticated request and path, never from JSON actor or group fields.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/AppendMessageRequest' } }
+      responses:
+        '201':
+          description: Durable message, including the original on an identical retry
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Message' } }
+        '400': { description: Invalid input; body is limited to 16384 UTF-8 bytes }
+        '401': { description: Authentication required }
+        '403': { description: Current group membership required }
+        '409': { description: Client message ID reused with different content or group }
+  /api/v1/ws:
+    get:
+      operationId: collaborationSocket
+      summary: Native client WebSocket for all currently joined groups
+      description: >-
+        Upgrade with Authorization Bearer; query-string tokens are not accepted.
+        session.ready is the first envelope. Send message.send with requestId,
+        groupId, clientMessageId and body. Receive message.ack with requestId,
+        clientMessageId and the persisted Message. Newly committed messages emit
+        message.created to current group members, including the sender. Identical
+        retries emit an acknowledgement without another created event. Use
+        message.sequence to order and message.id to merge REST and live events;
+        only advance a history cursor after filling any gap via REST.
+        presence.changed has groupId, userId and online and is visible only to
+        current members sharing that group. Send ping with requestId to receive
+        pong. error replies carry requestId and code (invalid_input, forbidden,
+        conflict, invalid_event, internal_error). Membership and session state
+        are checked on sends and immediately before delivery. Revoked, disabled
+        or expired sessions are disconnected on the next event or heartbeat.
+        Slow consumers are disconnected and recover through REST cursor catch-up.
+        The typed envelope can be extended with P2P events in a later version;
+        currently unsupported event types receive invalid_event.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '101': { description: WebSocket upgraded; envelopes follow SocketEvent }
+        '400': { description: Invalid upgrade request }
+        '401': { description: Authentication required }
 components:
   securitySchemes:
     bearerAuth:
@@ -129,3 +272,80 @@ components:
         expiresAt: { type: string, format: date-time }
         deviceId: { type: string, format: uuid }
         user: { $ref: '#/components/schemas/User' }
+    Group:
+      type: object
+      required: [id, name, createdBy, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+    CreateGroupRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        ownerId: { type: string, format: uuid, description: Defaults to the creating administrator }
+    GroupMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [userId, role]
+      properties:
+        userId: { type: string, format: uuid }
+        role: { type: string, enum: [owner, member] }
+    GroupMember:
+      type: object
+      required: [userId, role, joinedAt]
+      properties:
+        userId: { type: string, format: uuid }
+        role: { type: string, enum: [owner, member] }
+        joinedAt: { type: string, format: date-time }
+    AppendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [clientMessageId, body]
+      properties:
+        clientMessageId: { type: string, minLength: 1, maxLength: 128 }
+        body: { type: string, minLength: 1, description: At most 16384 UTF-8 bytes; whitespace alone is rejected }
+    Message:
+      type: object
+      required: [id, sequence, groupId, senderId, clientMessageId, body, createdAt, cursor]
+      properties:
+        id: { type: string, format: uuid }
+        sequence: { type: integer, format: int64, description: Monotonic server commit order; gaps between groups are normal }
+        groupId: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        clientMessageId: { type: string }
+        body: { type: [string, 'null'], description: Null after content retention expires }
+        createdAt: { type: string, format: date-time }
+        expiredAt: { type: string, format: date-time }
+        cursor: { type: string, description: Opaque cursor through this message within its group }
+    MessagePage:
+      type: object
+      required: [messages, nextCursor, hasMore]
+      properties:
+        messages: { type: array, items: { $ref: '#/components/schemas/Message' } }
+        nextCursor: { type: string }
+        hasMore: { type: boolean }
+    SocketClientEvent:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [message.send, ping] }
+        requestId: { type: string, maxLength: 128 }
+        groupId: { type: string, format: uuid }
+        clientMessageId: { type: string, maxLength: 128 }
+        body: { type: string }
+    SocketEvent:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [session.ready, message.created, message.ack, presence.changed, pong, error] }
+        requestId: { type: string }
+        groupId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        online: { type: boolean }
+        clientMessageId: { type: string }
+        message: { $ref: '#/components/schemas/Message' }
+        code: { type: string, enum: [invalid_input, forbidden, conflict, invalid_event, internal_error] }
