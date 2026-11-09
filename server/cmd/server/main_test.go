@@ -43,6 +43,7 @@ func TestRunReportsMigrationError(t *testing.T) {
 func TestRunBootstrapsAdministratorFromEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bootstrap.sqlite3")
 	t.Setenv("LINKNESTX_SQLITE_PATH", path)
+	t.Setenv("LINKNESTX_STORAGE_ROOT", filepath.Join(t.TempDir(), "storage"))
 	t.Setenv("LINKNESTX_BIND_ADDRESS", "invalid-address")
 	t.Setenv("LINKNESTX_BOOTSTRAP_ADMIN_USERNAME", "operator")
 	t.Setenv("LINKNESTX_BOOTSTRAP_ADMIN_PASSWORD", "  local password  ")

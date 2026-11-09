@@ -2,9 +2,13 @@ package http
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/chat"
 	"github.com/linknestx/linknestx/server/internal/files"
 )
 
@@ -13,6 +17,9 @@ type FileHandlers struct{ Service *files.FileService }
 func NewFileHandlers(s *files.FileService) *FileHandlers { return &FileHandlers{s} }
 func (h *FileHandlers) Register(mux *http.ServeMux, a *auth.AuthService) {
 	routes := map[string]http.HandlerFunc{
+		"PUT /api/v1/uploads/{uploadID}/chunks/{index}":  h.PutChunk,
+		"POST /api/v1/uploads/{uploadID}/complete":       h.Complete,
+		"GET /api/v1/files/{versionID}/chunks/{hash}":    h.Chunk,
 		"POST /api/v1/files/uploads":                     h.StartUpload,
 		"GET /api/v1/uploads/{uploadID}":                 h.GetUpload,
 		"GET /api/v1/files":                              h.List,
@@ -99,6 +106,11 @@ func (h *FileHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 func fileError(w http.ResponseWriter, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		writeError(w, 413, errors.New("request body too large"))
+		return
+	}
 	switch {
 	case errors.Is(err, files.ErrInvalidInput), errors.Is(err, files.ErrInvalidGrant), errors.Is(err, files.ErrInvalidChunkHash), errors.Is(err, files.ErrInvalidChunkSize), errors.Is(err, files.ErrChunkSizeMismatch), errors.Is(err, files.ErrChunkHashMismatch):
 		writeError(w, 400, err)
@@ -106,9 +118,57 @@ func fileError(w http.ResponseWriter, err error) {
 		writeError(w, 403, err)
 	case errors.Is(err, files.ErrUnavailable):
 		writeError(w, 404, err)
-	case errors.Is(err, files.ErrIncomplete):
+	case errors.Is(err, files.ErrIncomplete), errors.Is(err, chat.ErrConflict):
 		writeError(w, 409, err)
 	default:
 		groupError(w, err)
+	}
+}
+
+func (h *FileHandlers) PutChunk(w http.ResponseWriter, r *http.Request) {
+	index, err := strconv.Atoi(r.PathValue("index"))
+	if err != nil || index < 0 {
+		fileError(w, files.ErrInvalidInput)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, files.MaxChunkSize+1)
+	if err = h.Service.PutChunk(r.Context(), UserIDFromContext(r.Context()), r.PathValue("uploadID"), index, r.Body); err != nil {
+		fileError(w, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+func (h *FileHandlers) Complete(w http.ResponseWriter, r *http.Request) {
+	m, err := h.Service.CompleteUpload(r.Context(), UserIDFromContext(r.Context()), r.PathValue("uploadID"))
+	if err != nil {
+		fileError(w, err)
+		return
+	}
+	writeJSON(w, 200, m)
+}
+func (h *FileHandlers) Chunk(w http.ResponseWriter, r *http.Request) {
+	actor := UserIDFromContext(r.Context())
+	version := r.PathValue("versionID")
+	task := r.Header.Get("X-Transfer-ID")
+	if len(task) > 128 {
+		fileError(w, files.ErrInvalidInput)
+		return
+	}
+	reader, info, err := h.Service.OpenChunk(r.Context(), actor, version, r.PathValue("hash"))
+	if err != nil {
+		fileError(w, err)
+		return
+	}
+	defer reader.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(200)
+	n, err := io.CopyN(w, reader, info.Size)
+	if err == nil && n == info.Size {
+		if err = h.Service.RecordServerDelivery(r.Context(), actor, version, task, n); err != nil {
+			slog.Error("record server transfer", "error", err)
+		}
 	}
 }

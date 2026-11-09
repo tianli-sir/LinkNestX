@@ -15,13 +15,13 @@ func NewRepository(conn *sql.DB) *Repository { return &Repository{conn} }
 
 type scanner interface{ Scan(...any) error }
 
-const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at`
+const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN 'available' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END)`
 
 func scanMessage(row scanner) (Message, error) {
 	var m Message
 	var created string
 	var expired sql.NullString
-	if err := row.Scan(&m.ID, &m.Sequence, &m.GroupID, &m.SenderID, &m.ClientMessageID, &m.Body, &created, &expired); err != nil {
+	if err := row.Scan(&m.ID, &m.Sequence, &m.GroupID, &m.SenderID, &m.ClientMessageID, &m.Body, &created, &expired, &m.FileID, &m.FileVersionID, &m.AttachmentStatus); err != nil {
 		return m, err
 	}
 	var err error
@@ -61,7 +61,7 @@ func (r *Repository) append(ctx context.Context, m Message) (Message, bool, erro
 	}
 	existing, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE sender_id=? AND client_message_id=?`, m.SenderID, m.ClientMessageID))
 	if err == nil {
-		if existing.GroupID != m.GroupID || (existing.Body != nil && *existing.Body != *m.Body) {
+		if existing.GroupID != m.GroupID || existing.FileVersionID != nil || (existing.Body != nil && *existing.Body != *m.Body) {
 			return Message{}, false, ErrConflict
 		}
 		return existing, false, nil
@@ -113,7 +113,7 @@ func (r *Repository) list(ctx context.Context, actorID, groupID string, after in
 	return page, rows.Err()
 }
 func (r *Repository) expire(ctx context.Context, before, now time.Time) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `UPDATE messages SET body=NULL,expired_at=? WHERE created_at<? AND expired_at IS NULL`, now.Format(timestampLayout), before.Format(timestampLayout))
+	result, err := r.db.ExecContext(ctx, `UPDATE messages SET body=NULL,file_id=NULL,file_version_id=NULL,expired_at=? WHERE created_at<? AND expired_at IS NULL`, now.Format(timestampLayout), before.Format(timestampLayout))
 	if err != nil {
 		return 0, err
 	}

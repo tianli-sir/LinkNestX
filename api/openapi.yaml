@@ -216,6 +216,154 @@ paths:
         '101': { description: WebSocket upgraded; envelopes follow SocketEvent }
         '400': { description: Invalid upgrade request }
         '401': { description: Authentication required }
+  /api/v1/files/uploads:
+    post:
+      operationId: startFileUpload
+      summary: Start a private pending upload; each chunk needs its own verified receipt
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/StartUpload' } }
+      responses:
+        '201':
+          description: Pending upload; no file is published yet
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/UploadSession' } }
+        '400': { description: Invalid bounded manifest or name }
+        '403': { description: Current membership or management permission required }
+  /api/v1/uploads/{uploadId}:
+    parameters:
+      - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: resumeFileUpload
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Original uploader's missing receipts; completed uploads have none
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/UploadSession' } }
+        '403': { description: Original uploader and current permission required }
+        '404': { description: Upload expired or file unavailable }
+  /api/v1/uploads/{uploadId}/chunks/{index}:
+    parameters:
+      - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: index, in: path, required: true, schema: { type: integer, minimum: 0 } }
+    put:
+      operationId: putFileChunk
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream: { schema: { type: string, format: binary } }
+      responses:
+        '204': { description: Exact manifest length and SHA-256 verified; receipt persisted }
+        '400': { description: Incorrect index, length, or hash }
+        '403': { description: Upload permission revoked }
+        '404': { description: Upload expired or file unavailable }
+  /api/v1/uploads/{uploadId}/complete:
+    parameters:
+      - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: completeFileUpload
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Full server copy verified and atomically published with one group attachment; retry returns the same version
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/FileVersion' } }
+        '400': { description: Whole-file SHA-256 mismatch }
+        '409': { description: Upload receipts incomplete or message ID conflict }
+  /api/v1/files:
+    get:
+      operationId: listFiles
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: groupId, in: query, description: Supply groupId or scope=pool, schema: { type: string, format: uuid } }
+        - { name: scope, in: query, schema: { type: string, enum: [pool] } }
+      responses:
+        '200':
+          description: Accessible published live files
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/File' } } }
+        '401': { description: Authentication required }
+        '403': { description: Group membership required }
+  /api/v1/files/{fileId}/versions:
+    parameters:
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listFileVersions
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Accessible immutable versions; chunks are fetched through each manifest
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FileVersion' } } }
+    post:
+      operationId: createFileVersion
+      summary: Start a pending replacement version through the normal upload flow
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/StartUpload' } }
+      responses:
+        '201':
+          description: Pending upload for the same logical file
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/UploadSession' } }
+  /api/v1/file-versions/{versionId}/manifest:
+    parameters:
+      - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: fileManifest
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Immutable server-authoritative manifest
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/FileVersion' } }
+        '403': { description: File access denied }
+        '404': { description: Version pending, expired, deleted, or absent }
+  /api/v1/files/{versionId}/chunks/{hash}:
+    parameters:
+      - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: hash, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{64}$' } }
+    get:
+      operationId: downloadFileChunk
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: X-Transfer-ID, in: header, description: Optional task identifier for aggregate server delivery records, schema: { type: string, maxLength: 128 } }
+      responses:
+        '200':
+          description: Entire chunk stream with exact Content-Length; permissions and lifecycle rechecked for every request
+          headers:
+            Content-Length: { schema: { type: integer, minimum: 1 } }
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+        '403': { description: Current access revoked }
+        '404': { description: Version or stored chunk unavailable }
+  /api/v1/files/{fileId}/promote:
+    parameters:
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: promoteFile
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Administrator promotion; all live versions lose automatic expiry
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/File' } }
+        '403': { description: Current administrator required }
+  /api/v1/files/{fileId}:
+    parameters:
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: deleteFile
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: File unavailable immediately; shared bytes retained until no live references }
+        '403': { description: Uploader, group owner, or administrator required; pool files require administrator }
 components:
   securitySchemes:
     bearerAuth:
@@ -321,6 +469,9 @@ components:
         createdAt: { type: string, format: date-time }
         expiredAt: { type: string, format: date-time }
         cursor: { type: string, description: Opaque cursor through this message within its group }
+        fileId: { type: string, format: uuid }
+        fileVersionId: { type: string, format: uuid }
+        attachmentStatus: { type: string, enum: [available, deleted, expired] }
     MessagePage:
       type: object
       required: [messages, nextCursor, hasMore]
@@ -349,3 +500,74 @@ components:
         clientMessageId: { type: string }
         message: { $ref: '#/components/schemas/Message' }
         code: { type: string, enum: [invalid_input, forbidden, conflict, invalid_event, internal_error] }
+    FileChunk:
+      type: object
+      required: [index, hash, size]
+      properties:
+        index: { type: integer, minimum: 0 }
+        hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        size: { type: integer, minimum: 1, maximum: 16777216 }
+    StartUpload:
+      type: object
+      additionalProperties: false
+      required: [groupId, name, size, sha256, chunks]
+      properties:
+        groupId: { type: string, format: uuid }
+        fileId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 255, description: Display metadata; path separators and control characters forbidden }
+        size: { type: integer, minimum: 0, maximum: 20000000000 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        chunkSize: { type: integer, minimum: 1, maximum: 16777216, default: 4194304 }
+        chunks: { type: array, maxItems: 20000, items: { $ref: '#/components/schemas/FileChunk' } }
+    UploadSession:
+      type: object
+      required: [uploadId, fileId, versionId, missingIndexes, completed]
+      properties:
+        uploadId: { type: string, format: uuid }
+        fileId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        missingIndexes: { type: array, items: { type: integer, minimum: 0 } }
+        completed: { type: boolean }
+    File:
+      type: object
+      required: [id, groupId, name, createdBy, visibility, currentVersionId, createdAt, expiresAt, status, size, sha256]
+      properties:
+        id: { type: string, format: uuid }
+        groupId: { type: string, format: uuid }
+        name: { type: string }
+        createdBy: { type: string, format: uuid }
+        visibility: { type: string, enum: [group, pool] }
+        currentVersionId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        status: { type: string, enum: [published] }
+        size: { type: integer }
+        sha256: { type: string }
+    FileVersion:
+      type: object
+      required: [fileId, versionId, name, size, sha256, chunkSize, chunks, expiresAt, visibility, createdAt, createdBy, status]
+      properties:
+        fileId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        name: { type: string }
+        size: { type: integer }
+        sha256: { type: string }
+        chunkSize: { type: integer }
+        chunks: { type: array, items: { $ref: '#/components/schemas/FileChunk' } }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        visibility: { type: string, enum: [group, pool] }
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string, format: uuid }
+        status: { type: string, enum: [published] }
+    ChunkGrant:
+      type: object
+      required: [userId, deviceId, sessionId, versionId, chunkHash, size, expiresAt, signature]
+      properties:
+        userId: { type: string, format: uuid }
+        deviceId: { type: string }
+        sessionId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        chunkHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        size: { type: integer }
+        expiresAt: { type: string, format: date-time }
+        signature: { type: string, description: Server HMAC; serving peer must ask the server to revalidate current recipient and serving-peer authorization }

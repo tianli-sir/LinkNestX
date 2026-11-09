@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/chat"
+	"github.com/linknestx/linknestx/server/internal/groups"
 )
 
 const (
@@ -88,11 +90,16 @@ type FileService struct {
 	store      *ChunkStore
 	signingKey []byte
 	now        func() time.Time
-	storageMu  sync.Mutex
+	storageMu  sync.RWMutex
+	chat       *chat.ChatService
 }
 
-func NewFileService(conn *sql.DB, a *auth.AuthService, store *ChunkStore, signingKey string) *FileService {
-	return &FileService{db: conn, auth: a, store: store, signingKey: []byte(signingKey), now: time.Now}
+func NewFileService(conn *sql.DB, a *auth.AuthService, store *ChunkStore, signingKey string, messages ...*chat.ChatService) *FileService {
+	c := chat.NewChatService(conn, a, groups.NewGroupService(conn, a))
+	if len(messages) > 0 && messages[0] != nil {
+		c = messages[0]
+	}
+	return &FileService{db: conn, auth: a, store: store, signingKey: []byte(signingKey), now: time.Now, chat: c}
 }
 func (s *FileService) SetClock(now func() time.Time) {
 	if now != nil {

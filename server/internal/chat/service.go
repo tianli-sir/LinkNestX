@@ -28,15 +28,18 @@ type AppendInput struct {
 	Body            string `json:"body"`
 }
 type Message struct {
-	ID              string     `json:"id"`
-	Sequence        int64      `json:"sequence"`
-	GroupID         string     `json:"groupId"`
-	SenderID        string     `json:"senderId"`
-	ClientMessageID string     `json:"clientMessageId"`
-	Body            *string    `json:"body"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	ExpiredAt       *time.Time `json:"expiredAt,omitempty"`
-	Cursor          string     `json:"cursor"`
+	ID               string     `json:"id"`
+	Sequence         int64      `json:"sequence"`
+	GroupID          string     `json:"groupId"`
+	SenderID         string     `json:"senderId"`
+	ClientMessageID  string     `json:"clientMessageId"`
+	Body             *string    `json:"body"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	ExpiredAt        *time.Time `json:"expiredAt,omitempty"`
+	Cursor           string     `json:"cursor"`
+	FileID           *string    `json:"fileId,omitempty"`
+	FileVersionID    *string    `json:"fileVersionId,omitempty"`
+	AttachmentStatus *string    `json:"attachmentStatus,omitempty"`
 }
 type MessagePage struct {
 	Messages   []Message `json:"messages"`

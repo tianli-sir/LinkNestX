@@ -11,6 +11,7 @@ import (
 	"github.com/linknestx/linknestx/server/internal/auth"
 	"github.com/linknestx/linknestx/server/internal/chat"
 	"github.com/linknestx/linknestx/server/internal/config"
+	"github.com/linknestx/linknestx/server/internal/files"
 	"github.com/linknestx/linknestx/server/internal/groups"
 )
 
@@ -53,7 +54,7 @@ func NewRouterWithAuth(cfg config.Config, service *auth.AuthService) stdhttp.Han
 
 // NewRouterWithServices composes caller-owned feature services. The caller must
 // close hub during shutdown because upgraded sockets are not owned by HTTP.
-func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.GroupService, c *chat.ChatService, hub *chat.Hub) stdhttp.Handler {
+func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.GroupService, c *chat.ChatService, hub *chat.Hub, fileServices ...*files.FileService) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.Handle("/", NewRouterWithAuth(cfg, a))
 	NewGroupHandlers(g).Register(mux, a)
@@ -61,6 +62,9 @@ func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.Gro
 	mux.Handle("GET /api/v1/groups/{groupID}/messages", RequireAuth(a, stdhttp.HandlerFunc(ch.List)))
 	mux.Handle("POST /api/v1/groups/{groupID}/messages", RequireAuth(a, stdhttp.HandlerFunc(ch.Append)))
 	mux.Handle("GET /api/v1/ws", RequireAuth(a, hub))
+	if len(fileServices) > 0 && fileServices[0] != nil {
+		NewFileHandlers(fileServices[0]).Register(mux, a)
+	}
 	return mux
 }
 

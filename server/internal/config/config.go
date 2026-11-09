@@ -34,6 +34,7 @@ type Config struct {
 	FileRetention          time.Duration
 	MessageRetention       time.Duration
 	AuditRetention         time.Duration
+	CleanupInterval        time.Duration
 	BootstrapAdminUsername string
 	BootstrapAdminPassword string
 }
@@ -51,6 +52,7 @@ func Default() Config {
 		FileRetention:    defaultFileRetention,
 		MessageRetention: defaultMessageRetention,
 		AuditRetention:   defaultAuditRetention,
+		CleanupInterval:  time.Hour,
 	}
 }
 
@@ -79,6 +81,7 @@ func Load() (Config, error) {
 		name string
 		to   *time.Duration
 	}{
+		{name: "LINKNESTX_CLEANUP_INTERVAL", to: &cfg.CleanupInterval},
 		{name: "LINKNESTX_FILE_RETENTION", to: &cfg.FileRetention},
 		{name: "LINKNESTX_MESSAGE_RETENTION", to: &cfg.MessageRetention},
 		{name: "LINKNESTX_AUDIT_RETENTION", to: &cfg.AuditRetention},
