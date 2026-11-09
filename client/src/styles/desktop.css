@@ -1,6 +1,7 @@
 @import "./tokens.css";
 
 .ln-desktop, .ln-login {
+  box-sizing: border-box;
   color: var(--ln-color-text);
   background: var(--ln-color-background);
   font-family: var(--ln-font-family);
@@ -26,7 +27,7 @@
 .ln-button-primary:active:not(:disabled) { background: var(--ln-color-text); }
 
 /* Authentication is a compact work form, with supporting guidance next to inputs. */
-.ln-login { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 32px; gap: 28px; }
+.ln-login { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 20px; }
 .ln-login-brand { display: flex; align-items: center; gap: 12px; }
 .ln-login-brand strong { font-size: 20px; font-weight: 650; }
 .ln-login-brand > span:last-child { padding-left: 12px; border-left: 1px solid var(--ln-color-border); color: var(--ln-color-muted); }
@@ -49,7 +50,10 @@
 .ln-error-summary a { color: inherit; text-underline-offset: 3px; }
 .ln-login-submit { width: 100%; margin-top: 4px; }
 .ln-login-help { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 24px 0 0; padding-top: 20px; border-top: 1px solid var(--ln-color-border); color: var(--ln-color-muted); font-size: var(--ln-font-secondary); }
-.ln-login-footer { display: flex; align-items: center; gap: 6px; color: var(--ln-color-muted); font-size: var(--ln-font-secondary); }
+.ln-login-footer { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--ln-color-muted); font-size: var(--ln-font-secondary); }
+
+.ln-login-footer > span:first-child { display: flex; align-items: center; gap: 6px; }
+@media (max-height: 720px) { .ln-login { justify-content: flex-start; padding-block: 20px; gap: 16px; }.ln-login-panel { padding: 24px; } }
 
 /* The desktop rail stays steady while individual workspaces own their content. */
 .ln-desktop { display: grid; grid-template-columns: var(--ln-rail-width) minmax(0, 1fr); }

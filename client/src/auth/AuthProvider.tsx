@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiErrorMessage, ApiError, createNativeTransport, normalizeServerUrl, RestClient, type NativeTransport } from "../api/rest";
-import type { LoginInput, Session } from "./types";
+import type { LoginInput, Session, User } from "./types";
 
 export interface PreferenceStorage {
   getItem(key: string): string | null;
@@ -13,6 +13,7 @@ export interface AuthContextValue {
   client: RestClient;
   login(input: LoginInput): Promise<void>;
   logout(): Promise<void>;
+  changePassword(currentPassword: string, newPassword: string): Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -49,7 +50,8 @@ export function AuthProvider({ children, transport, storage }: AuthProviderProps
   const login = useCallback(async (input: LoginInput): Promise<void> => {
     const generation = ++operation.current;
     const normalized = normalizeServerUrl(input.serverUrl);
-    const deviceId = input.deviceId || readPreference(preferences, DEVICE_KEY) || undefined;
+    // Native owns device IDs scoped to the server and account.
+    const deviceId = input.deviceId || undefined;
     try {
       const result = await nativeTransport.login({ ...input, serverUrl: normalized, ...(deviceId ? { deviceId } : {}) });
       if (generation !== operation.current) return;
@@ -70,7 +72,13 @@ export function AuthProvider({ children, transport, storage }: AuthProviderProps
     catch (error) { throw new ApiError(apiErrorMessage(error, "退出登录失败，请重试")); }
   }, [nativeTransport]);
 
-  const value = useMemo(() => ({ session, serverUrl, client, login, logout }), [session, serverUrl, client, login, logout]);
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const generation = operation.current;
+    const user = await client.request<User>("POST", "/api/v1/auth/password", { currentPassword, newPassword });
+    if (generation === operation.current) setSession(previous => previous ? { ...previous, user } : null);
+  }, [client]);
+
+  const value = useMemo(() => ({ session, serverUrl, client, login, logout, changePassword }), [session, serverUrl, client, login, logout, changePassword]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

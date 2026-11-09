@@ -15,6 +15,7 @@ export interface AppShellProps {
   onNavigate(destination: NavigationKey): void;
   connection: ConnectionState;
   activeTransfers?: number;
+  transferLabel?: string;
   title?: string;
   headerActions?: ReactNode;
   onSettings?(): void;
@@ -30,7 +31,7 @@ const connectionLabels: Record<ConnectionState["status"], string> = {
   connected: "已连接", connecting: "正在连接", disconnected: "未连接", error: "连接异常",
 };
 
-export function AppShell({ children, user, selected, onNavigate, connection, activeTransfers = 0, title, headerActions, onSettings, onLogout }: AppShellProps) {
+export function AppShell({ children, user, selected, onNavigate, connection, activeTransfers = 0, transferLabel, title, headerActions, onSettings, onLogout }: AppShellProps) {
   const id = useId();
   const [accountOpen, setAccountOpen] = useState(false);
   const accountButton = useRef<HTMLButtonElement>(null);
@@ -69,21 +70,21 @@ export function AppShell({ children, user, selected, onNavigate, connection, act
         {availableNavigation.map((item) => <button type="button" key={item.key} className="ln-nav-button" aria-current={selected === item.key ? "page" : undefined} onClick={() => onNavigate(item.key)}><Icon name={item.icon} /><span>{item.label}</span></button>)}
       </nav>
       <div className="ln-account" ref={accountArea} onKeyDown={(event) => { if (event.key === "Escape" && accountOpen) { event.stopPropagation(); setAccountOpen(false); accountButton.current?.focus(); } }}>
+        <button type="button" className="ln-account-button" aria-label={`${user.username} 的账户选项`} aria-expanded={accountOpen} aria-controls={`${id}-account-options`} onClick={() => setAccountOpen((open) => !open)} ref={accountButton}>
+          <span className="ln-avatar" aria-hidden="true">{Array.from(user.username)[0]?.toUpperCase() ?? "员"}</span><span className="ln-account-name"><strong>{user.username}</strong><span>{canManage ? "管理员" : "员工"}</span></span><Icon name="chevron" size={16} />
+        </button>
         {accountOpen && <div id={`${id}-account-options`} className="ln-account-options" aria-label="账户选项">
           <p>{user.username}<span>{canManage ? "管理员" : "员工"}</span></p>
           {onSettings && <button type="button" onClick={() => accountAction(onSettings)}><Icon name="settings" size={18} />设置</button>}
           {onLogout && <button type="button" className="ln-account-logout" onClick={() => accountAction(onLogout)}><Icon name="logout" size={18} />退出登录</button>}
           {!onSettings && !onLogout && <span className="ln-account-note">账户操作由工作区提供</span>}
         </div>}
-        <button type="button" className="ln-account-button" aria-label={`${user.username} 的账户选项`} aria-expanded={accountOpen} aria-controls={`${id}-account-options`} onClick={() => setAccountOpen((open) => !open)} ref={accountButton}>
-          <span className="ln-avatar" aria-hidden="true">{Array.from(user.username)[0]?.toUpperCase() ?? "员"}</span><span className="ln-account-name"><strong>{user.username}</strong><span>{canManage ? "管理员" : "员工"}</span></span><Icon name="chevron" size={16} />
-        </button>
       </div>
     </aside>
     <div className="ln-workspace">
       <header className="ln-workspace-header"><h1>{currentTitle}</h1>{headerActions && <div className="ln-header-actions">{headerActions}</div>}</header>
       <main className="ln-workspace-content" id={`${id}-workspace`} ref={workspace} tabIndex={-1} aria-label={currentTitle}>{children}</main>
-      <footer className="ln-statusbar"><span className={`ln-connection ln-connection-${connection.status}`} role="status"><Icon name={connection.status === "connected" ? "connected" : "disconnected"} size={16} />{connection.label ?? connectionLabels[connection.status]}</span><button type="button" className="ln-transfer-status" onClick={() => onNavigate("transfers")}><Icon name="transfers" size={15} />{transfers > 0 ? `${transfers} 项传输进行中` : "暂无传输任务"}</button></footer>
+      <footer className="ln-statusbar"><span className={`ln-connection ln-connection-${connection.status}`} role="status"><Icon name={connection.status === "connected" ? "connected" : "disconnected"} size={16} />{connection.label ?? connectionLabels[connection.status]}</span><button type="button" className="ln-transfer-status" onClick={() => onNavigate("transfers")}><Icon name="transfers" size={15} />{transferLabel ?? (transfers > 0 ? `${transfers} 项传输进行中` : "暂无传输任务")}</button></footer>
     </div>
   </div>;
 }

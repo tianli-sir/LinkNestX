@@ -7,13 +7,14 @@ import "../styles/desktop.css";
 export interface LoginScreenProps {
   onLogin(input: LoginInput): Promise<void>;
   initialServerUrl?: string;
+  appVersion?: string;
 }
 
 type Field = "serverUrl" | "username" | "password";
 type Errors = Partial<Record<Field, string>>;
 const fieldLabels: Record<Field, string> = { serverUrl: "服务器地址", username: "用户名", password: "密码" };
 
-export function LoginScreen({ onLogin, initialServerUrl = "" }: LoginScreenProps) {
+export function LoginScreen({ onLogin, initialServerUrl = "", appVersion }: LoginScreenProps) {
   const id = useId();
   const [values, setValues] = useState({ serverUrl: initialServerUrl, username: "", password: "" });
   const [errors, setErrors] = useState<Errors>({});
@@ -77,6 +78,6 @@ export function LoginScreen({ onLogin, initialServerUrl = "" }: LoginScreenProps
       </form>
       <p className="ln-login-help"><Icon name="info" size={16} />还没有账号？请联系企业管理员。</p>
     </section>
-    <footer className="ln-login-footer"><Icon name="lock" size={14} />在桌面应用中连接企业工作区</footer>
+    <footer className="ln-login-footer"><span><Icon name="lock" size={14} />在桌面应用中连接企业工作区</span>{appVersion && <span className="ln-version" data-testid="app-version">版本 {appVersion}</span>}</footer>
   </main>;
 }

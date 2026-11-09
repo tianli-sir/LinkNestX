@@ -159,7 +159,7 @@ describe("AuthProvider", () => {
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
-  it("reuses the saved device id and keeps a failed login unauthenticated", async () => {
+  it("does not supply the legacy global device id and keeps a failed login unauthenticated", async () => {
     const storage = MemoryStorage();
     storage.setItem("linknestx.deviceId", "existing-device");
     const login = vi.fn().mockRejectedValue({ error: "账号已禁用" });
@@ -168,10 +168,25 @@ describe("AuthProvider", () => {
     fillLogin();
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("账号已禁用");
-    expect(login).toHaveBeenCalledWith({ serverUrl: "https://files.example.test", username: "li", password: "secret", deviceId: "existing-device" });
+    expect(login).toHaveBeenCalledWith({ serverUrl: "https://files.example.test", username: "li", password: "secret" });
     expect(screen.getByLabelText("当前用户")).toHaveTextContent("未登录");
     expect(storage.data.size).toBe(1);
   });
+  it("lets native choose an account-scoped device for a second account", async () => {
+    const storage = MemoryStorage();
+    const login = vi.fn().mockResolvedValueOnce(session).mockResolvedValueOnce({ ...session, deviceId: "device-2", user: { ...session.user, username: "chen" } });
+    const transport: NativeTransport = { login, logout: async () => undefined, request: async <T,>() => undefined as T };
+    render(<AuthProvider storage={storage} transport={transport}><AuthConsumer /></AuthProvider>);
+    fillLogin(); fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    await waitFor(() => expect(screen.getByLabelText("当前用户")).toHaveTextContent("li"));
+    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+    await waitFor(() => expect(screen.getByLabelText("当前用户")).toHaveTextContent("未登录"));
+    fillLogin(); fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "chen" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    await waitFor(() => expect(screen.getByLabelText("当前用户")).toHaveTextContent("chen"));
+    expect(login.mock.calls[1][0]).toEqual({ serverUrl: "https://files.example.test", username: "chen", password: "secret" });
+  });
+
 });
 
 describe("AppShell", () => {
