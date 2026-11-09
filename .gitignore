@@ -1,0 +1,23 @@
+# Go
+server/linknestx
+server/data/
+server/*.sqlite*
+.cache/
+
+# JavaScript
+node_modules/
+client/dist/
+client/.vite/
+*.tsbuildinfo
+
+# Rust / Tauri
+client/src-tauri/target/
+client/src-tauri/gen/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
