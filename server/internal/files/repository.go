@@ -29,7 +29,7 @@ func (s *FileService) List(ctx context.Context, actorID string, in ListInput) ([
 		return nil, err
 	}
 	if in.Scope != "pool" {
-		if err = member(ctx, tx, actorID, in.GroupID); err != nil {
+		if err = fileGroupAccess(ctx, tx, actorID, in.GroupID); err != nil {
 			return nil, err
 		}
 	}

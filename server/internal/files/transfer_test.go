@@ -304,3 +304,142 @@ func TestChatConflictRollsBackFilePublication(t *testing.T) {
 		t.Fatalf("failed audit committed %d %v", published, e)
 	}
 }
+
+func TestAdminOutsideGroupReplacesPoolVersion(t *testing.T) {
+	f := newFixture(t)
+	u := f.publish(t, []byte("original"))
+	if _, e := f.s.PromoteToPool(f.adminCtx, f.admin.User.ID, u.FileID); e != nil {
+		t.Fatal(e)
+	}
+	if list, e := f.s.List(f.adminCtx, f.admin.User.ID, ListInput{GroupID: f.group}); e != nil || len(list) != 1 {
+		t.Fatalf("admin list: %v %v", list, e)
+	}
+	data := []byte("admin replacement")
+	in := f.input(data)
+	in.FileID = u.FileID
+	next, e := f.s.StartUpload(f.adminCtx, f.admin.User.ID, in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = f.s.PutChunk(f.adminCtx, f.admin.User.ID, next.UploadID, 0, bytes.NewReader(data)); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = f.s.CompleteUpload(f.adminCtx, f.admin.User.ID, next.UploadID); e != nil {
+		t.Fatal(e)
+	}
+	r, _, e := f.s.OpenChunk(f.otherCtx, f.other.User.ID, next.VersionID, digest(data))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer r.Close()
+	got, e := io.ReadAll(r)
+	if e != nil || !bytes.Equal(got, data) {
+		t.Fatalf("replacement %q %v", got, e)
+	}
+	if _, e = f.s.chat.List(f.adminCtx, f.admin.User.ID, f.group, "", 50); e == nil {
+		t.Fatal("administrator gained ordinary chat history")
+	}
+	if _, e = f.s.chat.Append(f.adminCtx, f.admin.User.ID, chat.AppendInput{GroupID: f.group, ClientMessageID: "not-member", Body: "text"}); e == nil {
+		t.Fatal("administrator gained ordinary text chat")
+	}
+	page, e := f.s.chat.List(f.ownerCtx, f.owner.User.ID, f.group, "", 50)
+	if e != nil || len(page.Messages) != 2 || page.Messages[1].SenderID != f.admin.User.ID {
+		t.Fatalf("association %+v %v", page, e)
+	}
+}
+
+type blockingChunkReader struct {
+	*io.PipeReader
+	started chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingChunkReader) Read(p []byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	return r.PipeReader.Read(p)
+}
+func TestStalledUploadDoesNotBlockCleanupOrOtherTransfers(t *testing.T) {
+	f := newFixture(t)
+	data := []byte("available")
+	published := f.publish(t, data)
+	pending, e := f.s.StartUpload(f.memberCtx, f.member.User.ID, f.input([]byte("blocked")))
+	if e != nil {
+		t.Fatal(e)
+	}
+	pipe, writer := io.Pipe()
+	reader := &blockingChunkReader{PipeReader: pipe, started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(f.memberCtx)
+	defer cancel()
+	defer writer.Close()
+	defer pipe.Close()
+	blocked := make(chan error, 1)
+	go func() { blocked <- f.s.PutChunk(ctx, f.member.User.ID, pending.UploadID, 0, reader) }()
+	select {
+	case <-reader.started:
+	case <-time.After(time.Second):
+		t.Fatal("PUT never started")
+	}
+	cleanup := make(chan error, 1)
+	go func() { _, e := f.s.DeleteExpired(context.Background(), time.Now()); cleanup <- e }()
+	select {
+	case e := <-cleanup:
+		if e != nil {
+			t.Fatal(e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stalled PUT blocked cleanup")
+	}
+	progress := make(chan error, 1)
+	go func() {
+		r, _, e := f.s.OpenChunk(f.memberCtx, f.member.User.ID, published.VersionID, digest(data))
+		if e == nil {
+			r.Close()
+		}
+		if e != nil {
+			progress <- e
+			return
+		}
+		u, e := f.s.StartUpload(f.memberCtx, f.member.User.ID, f.input(data))
+		if e == nil {
+			e = f.s.PutChunk(f.memberCtx, f.member.User.ID, u.UploadID, 0, bytes.NewReader(data))
+		}
+		progress <- e
+	}()
+	select {
+	case e := <-progress:
+		if e != nil {
+			t.Fatal(e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("other transfers stalled")
+	}
+	cancel()
+	select {
+	case e := <-blocked:
+		if !errors.Is(e, context.Canceled) {
+			t.Fatalf("canceled PUT %v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled PUT did not stop")
+	}
+}
+func TestChatKeepsExpiredCauseAfterCleanup(t *testing.T) {
+	f := newFixture(t)
+	u := f.publish(t, []byte("expired"))
+	boundary := time.Now().UTC().Add(-time.Hour)
+	if _, e := f.db.Exec(`UPDATE file_versions SET expires_at=? WHERE id=?`, stamp(boundary), u.VersionID); e != nil {
+		t.Fatal(e)
+	}
+	check := func(want string) {
+		t.Helper()
+		page, e := f.s.chat.List(f.ownerCtx, f.owner.User.ID, f.group, "", 50)
+		if e != nil || len(page.Messages) != 1 || page.Messages[0].AttachmentStatus == nil || *page.Messages[0].AttachmentStatus != want {
+			t.Fatalf("attachment %+v %v", page, e)
+		}
+	}
+	check("expired")
+	if _, e := f.s.DeleteExpired(context.Background(), time.Now()); e != nil {
+		t.Fatal(e)
+	}
+	check("expired")
+}

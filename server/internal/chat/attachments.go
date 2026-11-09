@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/linknestx/linknestx/server/internal/auth"
 )
 
 type AttachmentInput struct{ GroupID, ClientMessageID, FileID, FileVersionID, Name string }
@@ -27,7 +28,7 @@ func (s *ChatService) AppendAttachment(ctx context.Context, actorID string, in A
 		return Message{}, err
 	}
 	defer tx.Rollback()
-	if err = memberInTransaction(ctx, tx, actorID, in.GroupID); err != nil {
+	if err = attachmentPublisherInTransaction(ctx, tx, actorID, in.GroupID); err != nil {
 		return Message{}, err
 	}
 	if err = publish(tx); err != nil {
@@ -69,4 +70,24 @@ func (s *ChatService) AppendAttachment(ctx context.Context, actorID string, in A
 		s.hub.Publish(m)
 	}
 	return m, nil
+}
+
+// This permission is limited to server-authored file-publication attachments.
+// Ordinary text and history continue to require group membership. The caller's
+// publication callback rechecks file management, and the immutable file/version
+// and original group association are verified before any message is committed.
+func attachmentPublisherInTransaction(ctx context.Context, tx *sql.Tx, actorID, groupID string) error {
+	err := memberInTransaction(ctx, tx, actorID, groupID)
+	if err == nil {
+		return nil
+	}
+	var count int
+	adminErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id JOIN sessions s ON s.user_id=u.id WHERE ur.user_id=? AND r.name='admin' AND u.disabled=0 AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday('now')`, actorID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&count)
+	if adminErr != nil {
+		return adminErr
+	}
+	if count == 0 {
+		return err
+	}
+	return nil
 }

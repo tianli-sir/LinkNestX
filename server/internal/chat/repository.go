@@ -15,7 +15,9 @@ func NewRepository(conn *sql.DB) *Repository { return &Repository{conn} }
 
 type scanner interface{ Scan(...any) error }
 
-const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN 'available' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END)`
+// file_versions.status retains the lifecycle cause when cleanup also marks the
+// logical file unavailable; automatic expiry must not become explicit deletion.
+const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN 'available' WHEN v.status='expired' THEN 'expired' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END)`
 
 func scanMessage(row scanner) (Message, error) {
 	var m Message

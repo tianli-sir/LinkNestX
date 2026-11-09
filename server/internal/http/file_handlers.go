@@ -1,11 +1,13 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
 	"github.com/linknestx/linknestx/server/internal/chat"
@@ -131,6 +133,18 @@ func (h *FileHandlers) PutChunk(w http.ResponseWriter, r *http.Request) {
 		fileError(w, files.ErrInvalidInput)
 		return
 	}
+	// Bound stalled network bodies even when a peer remains connected. A
+	// context alone cannot interrupt net/http's blocking body read.
+	deadline := time.Now().Add(2 * time.Minute)
+	controller := http.NewResponseController(w)
+	if err = controller.SetReadDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		fileError(w, err)
+		return
+	}
+	defer controller.SetReadDeadline(time.Time{})
+	ctx, cancel := context.WithDeadline(r.Context(), deadline)
+	defer cancel()
+	r = r.WithContext(ctx)
 	r.Body = http.MaxBytesReader(w, r.Body, files.MaxChunkSize+1)
 	if err = h.Service.PutChunk(r.Context(), UserIDFromContext(r.Context()), r.PathValue("uploadID"), index, r.Body); err != nil {
 		fileError(w, err)
@@ -165,6 +179,9 @@ func (h *FileHandlers) Chunk(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(200)
+	if r.Method == http.MethodHead {
+		return
+	}
 	n, err := io.CopyN(w, reader, info.Size)
 	if err == nil && n == info.Size {
 		if err = h.Service.RecordServerDelivery(r.Context(), actor, version, task, n); err != nil {

@@ -159,7 +159,7 @@ func (s *FileService) StartUpload(ctx context.Context, actorID string, in StartU
 	if err = activeActor(ctx, tx, actorID); err != nil {
 		return UploadSession{}, err
 	}
-	if err = member(ctx, tx, actorID, in.GroupID); err != nil {
+	if err = fileGroupAccess(ctx, tx, actorID, in.GroupID); err != nil {
 		return UploadSession{}, err
 	}
 	at := s.now().UTC()
@@ -247,9 +247,6 @@ func (s *FileService) upload(ctx context.Context, tx *sql.Tx, actorID, uploadID 
 	}
 	f, err := loadFile(ctx, tx, u.FileID)
 	if err != nil {
-		return u, err
-	}
-	if err = member(ctx, tx, actorID, f.groupID); err != nil {
 		return u, err
 	}
 	if err = manage(ctx, tx, actorID, f); err != nil {

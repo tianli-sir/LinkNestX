@@ -226,3 +226,15 @@ func (s *FileService) ValidateChunkGrant(ctx context.Context, g ChunkGrant) erro
 	}
 	return nil
 }
+
+// Administrators manage/read group files independently of group chat membership.
+func fileGroupAccess(ctx context.Context, q queryer, actorID, groupID string) error {
+	a, err := admin(ctx, q, actorID)
+	if err != nil {
+		return err
+	}
+	if a {
+		return nil
+	}
+	return member(ctx, q, actorID, groupID)
+}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"io"
+	"os"
 	"time"
 
 	"github.com/linknestx/linknestx/server/internal/chat"
@@ -14,8 +15,6 @@ import (
 // PutChunk never treats knowledge of a hash as proof of ownership. Every upload
 // requires its own verified full stream and durable receipt.
 func (s *FileService) PutChunk(ctx context.Context, actorID, uploadID string, index int, r io.Reader) error {
-	s.storageMu.RLock()
-	defer s.storageMu.RUnlock()
 	u, err := s.GetUpload(ctx, actorID, uploadID)
 	if err != nil {
 		return err
@@ -30,9 +29,15 @@ func (s *FileService) PutChunk(ctx context.Context, actorID, uploadID string, in
 	} else if err != nil {
 		return err
 	}
-	if err = s.store.Put(ctx, c.Hash, r, c.Size); err != nil {
+	staged, err := stageUploadChunk(ctx, r, c)
+	if err != nil {
 		return err
 	}
+	defer func() { staged.Close(); os.Remove(staged.Name()) }()
+	// Network input has finished. Only bounded local verified bytes enter the
+	// CAS publication lock; the existing pending-upload lease protects references.
+	s.storageMu.RLock()
+	defer s.storageMu.RUnlock()
 	if err = s.auth.ValidateActor(ctx, actorID); err != nil {
 		return err
 	}
@@ -47,6 +52,9 @@ func (s *FileService) PutChunk(ctx context.Context, actorID, uploadID string, in
 	}
 	if u.Completed {
 		return nil
+	}
+	if err = s.store.Put(ctx, c.Hash, staged, c.Size); err != nil {
+		return err
 	}
 	at := s.now()
 	receipt, err := tx.ExecContext(ctx, `INSERT INTO upload_receipts(upload_id,chunk_index,received_at) VALUES(?,?,?) ON CONFLICT(upload_id,chunk_index) DO NOTHING`, uploadID, index, stamp(at))
@@ -65,8 +73,6 @@ func (s *FileService) PutChunk(ctx context.Context, actorID, uploadID string, in
 	return tx.Commit()
 }
 func (s *FileService) CompleteUpload(ctx context.Context, actorID, uploadID string) (FileVersion, error) {
-	s.storageMu.RLock()
-	defer s.storageMu.RUnlock()
 	u, err := s.GetUpload(ctx, actorID, uploadID)
 	if err != nil {
 		return FileVersion{}, err
@@ -89,7 +95,9 @@ func (s *FileService) CompleteUpload(ctx context.Context, actorID, uploadID stri
 	whole := sha256.New()
 	var total int64
 	for _, c := range chunks {
+		s.storageMu.RLock()
 		r, info, e := s.store.Open(ctx, c.Hash)
+		s.storageMu.RUnlock()
 		if e != nil {
 			return FileVersion{}, e
 		}

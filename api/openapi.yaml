@@ -231,7 +231,7 @@ paths:
           content:
             application/json: { schema: { $ref: '#/components/schemas/UploadSession' } }
         '400': { description: Invalid bounded manifest or name }
-        '403': { description: Current membership or management permission required }
+        '403': { description: Current group membership or administrator file-management permission required }
   /api/v1/uploads/{uploadId}:
     parameters:
       - { name: uploadId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -251,6 +251,7 @@ paths:
       - { name: index, in: path, required: true, schema: { type: integer, minimum: 0 } }
     put:
       operationId: putFileChunk
+      description: Each chunk request has a two-minute body-read deadline. Incomplete requests may be retried against the same upload.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -341,6 +342,16 @@ paths:
             Content-Length: { schema: { type: integer, minimum: 1 } }
           content:
             application/octet-stream: { schema: { type: string, format: binary } }
+        '403': { description: Current access revoked }
+        '404': { description: Version or stored chunk unavailable }
+    head:
+      operationId: inspectFileChunk
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Authenticated chunk headers only; no bytes delivered or transfer accounting recorded
+          headers:
+            Content-Length: { schema: { type: integer, minimum: 1 } }
         '403': { description: Current access revoked }
         '404': { description: Version or stored chunk unavailable }
   /api/v1/files/{fileId}/promote:
