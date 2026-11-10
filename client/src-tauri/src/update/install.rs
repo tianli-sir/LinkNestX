@@ -891,12 +891,22 @@ mod tests {
     fn real_child_health_ack_commits_and_failure_rolls_back() {
         for mode in ["healthy", "wrong", "timeout", "crash"] {
             let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-            let target = root.path().join("LinkNestX.app");
+            let target = root.path().join(if cfg!(windows) {
+                "LinkNestX.exe"
+            } else {
+                "LinkNestX.app"
+            });
             let stage = root.path().join("prepared");
-            fs::create_dir(&target).unwrap();
-            fs::create_dir(&stage).unwrap();
-            fs::write(target.join("entry"), b"old").unwrap();
-            fs::write(stage.join("entry"), b"new").unwrap();
+            let (target_entry, stage_entry) = if cfg!(windows) {
+                // Windows production transactions replace one executable with ReplaceFileW.
+                (target.clone(), stage.clone())
+            } else {
+                fs::create_dir(&target).unwrap();
+                fs::create_dir(&stage).unwrap();
+                (target.join("entry"), stage.join("entry"))
+            };
+            fs::write(&target_entry, b"old").unwrap();
+            fs::write(&stage_entry, b"new").unwrap();
             let tx = Transaction::new(
                 target.clone(),
                 stage,
@@ -926,7 +936,7 @@ mod tests {
             );
             assert_eq!(result.is_ok(), mode == "healthy", "{mode}");
             assert_eq!(
-                fs::read(target.join("entry")).unwrap(),
+                fs::read(&target_entry).unwrap(),
                 if mode == "healthy" { b"new" } else { b"old" }
             );
         }

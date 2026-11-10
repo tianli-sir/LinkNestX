@@ -7,9 +7,22 @@ use std::{
     path::{Path, PathBuf},
 };
 pub fn no_links(path: &Path) -> Result<()> {
+    #[cfg(windows)]
+    if !path.is_absolute() {
+        return Err(bad("更新路径必须包含完整绝对根"));
+    }
     let mut part = PathBuf::new();
     for c in path.components() {
         part.push(c);
+        #[cfg(windows)]
+        if matches!(c, std::path::Component::Prefix(prefix)
+            if matches!(prefix.kind(), std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)))
+        {
+            // A disk prefix (especially canonical \\?\C:) is not a complete
+            // filesystem path. Inspect it after RootDir is appended, then
+            // inspect every following ancestor without canonicalizing links away.
+            continue;
+        }
         let meta = fs::symlink_metadata(&part)?;
         if meta.file_type().is_symlink() {
             return Err(bad("路径包含符号链接，请手动安装"));
@@ -165,4 +178,128 @@ pub fn set_mode(path: &Path, mode: u32) -> Result<()> {
         let _ = (path, mode);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn exercise_update_files(root: &Path) {
+        let state_dir = root.join("updates/jobs/pending");
+        directory(&state_dir).unwrap();
+        no_links(&state_dir).unwrap();
+        let state = state_dir.join("phase");
+        atomic_write(&state, b"prepared").unwrap();
+        assert_eq!(
+            file_hash(&state, 8).unwrap(),
+            super::super::manifest::hash(b"prepared")
+        );
+        atomic_write(&state, b"healthy").unwrap();
+        assert_eq!(
+            file_hash(&state, 7).unwrap(),
+            super::super::manifest::hash(b"healthy")
+        );
+        assert!(regular(&state_dir).is_err());
+        assert!(no_links(&state_dir.join("missing")).is_err());
+    }
+
+    #[test]
+    fn canonical_absolute_paths_support_directory_hash_and_atomic_replacement() {
+        let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        #[cfg(windows)]
+        assert!(
+            matches!(canonical.components().next(), Some(std::path::Component::Prefix(prefix))
+            if matches!(prefix.kind(), std::path::Prefix::VerbatimDisk(_)))
+        );
+        exercise_update_files(&canonical);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ordinary_absolute_disk_paths_support_update_files() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        let text = canonical.to_str().unwrap();
+        let ordinary = PathBuf::from(text.strip_prefix(r"\\?\").unwrap());
+        assert!(
+            matches!(ordinary.components().next(), Some(std::path::Component::Prefix(prefix))
+            if matches!(prefix.kind(), std::path::Prefix::Disk(_)))
+        );
+        exercise_update_files(&ordinary);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn incomplete_and_drive_relative_paths_are_not_update_roots() {
+        for path in [
+            r"C:",
+            r"C:relative",
+            r"\\?\C:",
+            r"\\?\C:relative",
+            r"\relative",
+        ] {
+            assert!(no_links(Path::new(path)).is_err(), "{path}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prefix_only_namespaces_must_not_bypass_metadata_checks() {
+        let missing = format!("linknestx-missing-{}", uuid::Uuid::new_v4());
+        for path in [format!(r"\\?\{missing}"), format!(r"\\.\{missing}")] {
+            let path = Path::new(&path);
+            assert!(path.is_absolute());
+            assert!(fs::symlink_metadata(path).is_err());
+            assert!(no_links(path).is_err());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn junction_ancestors_still_block_read_write_and_directory_creation() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("state"), b"original").unwrap();
+        let junction = root.path().join("redirected");
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(outside.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "junction fixture: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for base in [
+            root.path().to_path_buf(),
+            root.path().canonicalize().unwrap(),
+        ] {
+            let redirected = base.join("redirected");
+            assert!(no_links(&redirected.join("state")).is_err());
+            assert!(regular(&redirected.join("state")).is_err());
+            assert!(atomic_write(&redirected.join("state"), b"changed").is_err());
+            assert!(directory(&redirected.join("new-directory")).is_err());
+        }
+        assert_eq!(fs::read(outside.path().join("state")).unwrap(), b"original");
+        assert!(!outside.path().join("new-directory").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_ancestors_still_block_update_files() {
+        let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("state"), b"original").unwrap();
+        let link = root.path().join("redirected");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        assert!(regular(&link.join("state")).is_err());
+        assert!(atomic_write(&link.join("state"), b"changed").is_err());
+        assert!(directory(&link.join("new-directory")).is_err());
+        assert_eq!(fs::read(outside.path().join("state")).unwrap(), b"original");
+        assert!(!outside.path().join("new-directory").exists());
+    }
 }

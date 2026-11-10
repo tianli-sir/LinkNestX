@@ -271,12 +271,21 @@ async fn real_http_reuses_verified_block_and_fetches_only_missing_then_resumes()
 fn interrupted_swap_and_unhealthy_new_app_restore_old_tree() {
     for activate in [false, true] {
         let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-        let target = root.path().join("LinkNestX.app");
+        let target = root.path().join(if cfg!(windows) {
+            "LinkNestX.exe"
+        } else {
+            "LinkNestX.app"
+        });
         let staged = root.path().join("prepared");
-        std::fs::create_dir(&target).unwrap();
-        std::fs::create_dir(&staged).unwrap();
-        std::fs::write(target.join("entry"), b"original").unwrap();
-        std::fs::write(staged.join("entry"), b"new").unwrap();
+        let (target_entry, staged_entry) = if cfg!(windows) {
+            (target.clone(), staged.clone())
+        } else {
+            std::fs::create_dir(&target).unwrap();
+            std::fs::create_dir(&staged).unwrap();
+            (target.join("entry"), staged.join("entry"))
+        };
+        std::fs::write(&target_entry, b"original").unwrap();
+        std::fs::write(&staged_entry, b"new").unwrap();
         let tx = super::install::Transaction::new(
             target.clone(),
             staged,
@@ -289,9 +298,9 @@ fn interrupted_swap_and_unhealthy_new_app_restore_old_tree() {
             tx.activate().unwrap();
         }
         tx.rollback().unwrap();
-        assert_eq!(std::fs::read(target.join("entry")).unwrap(), b"original");
+        assert_eq!(std::fs::read(&target_entry).unwrap(), b"original");
         tx.rollback().unwrap();
-        assert_eq!(std::fs::read(target.join("entry")).unwrap(), b"original");
+        assert_eq!(std::fs::read(&target_entry).unwrap(), b"original");
     }
 }
 
