@@ -72,7 +72,7 @@ func (h *FileHandlers) GetUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, u)
 }
 func (h *FileHandlers) List(w http.ResponseWriter, r *http.Request) {
-	items, err := h.Service.List(r.Context(), UserIDFromContext(r.Context()), files.ListInput{GroupID: r.URL.Query().Get("groupId"), Scope: r.URL.Query().Get("scope")})
+	items, err := h.Service.List(r.Context(), UserIDFromContext(r.Context()), files.ListInput{DocumentID: r.URL.Query().Get("documentId"), GroupID: r.URL.Query().Get("groupId"), Scope: r.URL.Query().Get("scope")})
 	if err != nil {
 		fileError(w, err)
 		return
@@ -185,11 +185,32 @@ func (h *FileHandlers) Chunk(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		return
 	}
-	n, err := io.CopyN(w, reader, info.Size)
-	if err == nil && n == info.Size {
-		if err = h.Service.RecordServerDelivery(r.Context(), actor, version, task, n); err != nil {
-			slog.Error("record server transfer", "error", err)
+	controller := http.NewResponseController(w)
+	defer controller.SetWriteDeadline(time.Time{})
+	buffer := make([]byte, 32*1024)
+	var delivered int64
+	for delivered < info.Size {
+		want := min(int64(len(buffer)), info.Size-delivered)
+		n, err := io.ReadFull(reader, buffer[:want])
+		if err != nil {
+			return
 		}
+		// Permission can change while a chunk is in flight. Recheck immediately
+		// before each bounded write without holding a database transaction open.
+		if err = h.Service.CheckDownload(r.Context(), actor, version); err != nil {
+			return
+		}
+		if err = controller.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return
+		}
+		written, err := w.Write(buffer[:n])
+		if err != nil || written != n {
+			return
+		}
+		delivered += int64(written)
+	}
+	if err = h.Service.RecordServerDelivery(r.Context(), actor, version, task, delivered); err != nil {
+		slog.Error("record server transfer", "error", err)
 	}
 }
 

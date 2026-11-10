@@ -139,6 +139,16 @@ func (h *AuthHandlers) WebLogout(w http.ResponseWriter, r *http.Request) {
 func webAllowed(r *http.Request) bool {
 	p := r.URL.Path
 	get := r.Method == http.MethodGet || r.Method == http.MethodHead
+	if p == "/api/v1/documents" {
+		return get || r.Method == http.MethodPost
+	}
+	if strings.HasPrefix(p, "/api/v1/documents/") {
+		tail := strings.TrimPrefix(p, "/api/v1/documents/")
+		if !strings.Contains(tail, "/") {
+			return get || r.Method == http.MethodPatch || r.Method == http.MethodDelete
+		}
+		return get && strings.HasSuffix(tail, "/preview")
+	}
 	if get {
 		return p == "/api/v1/me" || p == "/api/v1/web/session" || p == "/api/v1/ws" || p == "/api/v1/conversations" || strings.HasPrefix(p, "/api/v1/conversations/") || strings.HasPrefix(p, "/api/v1/profiles/") || p == "/api/v1/contacts" || p == "/api/v1/contacts/search" || p == "/api/v1/groups" || strings.HasPrefix(p, "/api/v1/groups/") || p == "/api/v1/files" || (strings.HasPrefix(p, "/api/v1/files/") && strings.HasSuffix(p, "/versions")) || strings.HasPrefix(p, "/api/v1/web/files/") || p == "/api/v1/me/devices"
 	}

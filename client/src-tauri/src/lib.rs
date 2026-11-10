@@ -64,3 +64,10 @@ pub mod attachments;
 pub mod deployment;
 
 pub mod update;
+
+/// Host scheduling boundary shared with the standalone transfer service.
+pub mod runtime {
+    pub use tauri::async_runtime::{spawn, JoinHandle};
+}
+
+pub mod external;

@@ -9,7 +9,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 const root=fileURLToPath(new URL('../../../',import.meta.url));
-const output=path.join(root,'docs/verification/v2');
+const output=path.resolve(process.env.LINKNESTX_TEST_OUTPUT??path.join(root,'.cache/verification/review'));
 const scratch=await fs.mkdtemp(path.join(root,'.cache/v2-mobile-review-'));
 const probe=net.createServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
 const origin=`http://127.0.0.1:${port}`;

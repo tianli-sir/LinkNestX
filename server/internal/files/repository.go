@@ -18,6 +18,9 @@ func (s *FileService) List(ctx context.Context, actorID string, in ListInput) ([
 	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
 		return nil, err
 	}
+	if in.DocumentID != "" {
+		return s.listDocument(ctx, actorID, in)
+	}
 	if (in.Scope != "pool" && in.GroupID == "") || (in.Scope != "" && in.Scope != "pool") || (in.Scope == "pool" && in.GroupID != "") {
 		return nil, ErrInvalidInput
 	}
@@ -48,7 +51,7 @@ func (s *FileService) List(ctx context.Context, actorID string, in ListInput) ([
 		where += " AND (f.visibility<>'pool' OR f.listed=1)"
 	}
 	where += " AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id AND ? IN(d.pair_low,d.pair_high)))"
-	rows, err := tx.QueryContext(ctx, `SELECT f.id,f.group_id,f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE `+where+` AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR v.expires_at>?) ORDER BY f.created_at,f.id`, arg, actorID, stamp(s.now()))
+	rows, err := tx.QueryContext(ctx, `SELECT f.id,COALESCE(f.group_id,''),COALESCE(f.document_id,''),f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE `+where+` AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR v.expires_at>?) ORDER BY f.created_at,f.id`, arg, actorID, stamp(s.now()))
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +73,7 @@ func scanFile(row scanner) (File, error) {
 	var f File
 	var at string
 	var expires sql.NullString
-	err := row.Scan(&f.ID, &f.GroupID, &f.Name, &f.CreatedBy, &f.Visibility, &f.CurrentVersionID, &at, &expires, &f.Status, &f.Size, &f.SHA256, &f.Listed)
+	err := row.Scan(&f.ID, &f.GroupID, &f.DocumentID, &f.Name, &f.CreatedBy, &f.Visibility, &f.CurrentVersionID, &at, &expires, &f.Status, &f.Size, &f.SHA256, &f.Listed)
 	if err != nil {
 		return f, err
 	}
@@ -196,6 +199,9 @@ func (s *FileService) PromoteToPool(ctx context.Context, actorID, fileID string)
 	if err != nil {
 		return File{}, err
 	}
+	if f.documentID != "" {
+		return File{}, ErrForbidden
+	}
 	if direct, e := groups.IsDirect(ctx, tx, f.groupID); e != nil {
 		return File{}, e
 	} else if direct {
@@ -213,7 +219,7 @@ func (s *FileService) PromoteToPool(ctx context.Context, actorID, fileID string)
 	if err = recordAudit(ctx, tx, actorID, "file.promoted", fileID, f.current, s.now()); err != nil {
 		return File{}, err
 	}
-	result, err := scanFile(tx.QueryRowContext(ctx, `SELECT f.id,f.group_id,f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE f.id=?`, fileID))
+	result, err := scanFile(tx.QueryRowContext(ctx, `SELECT f.id,COALESCE(f.group_id,''),COALESCE(f.document_id,''),f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE f.id=?`, fileID))
 	if err != nil {
 		return File{}, err
 	}
@@ -252,4 +258,35 @@ func (s *FileService) Delete(ctx context.Context, actorID, fileID string) error 
 		return err
 	}
 	return s.commitChange(tx)
+}
+
+func (s *FileService) listDocument(ctx context.Context, actor string, in ListInput) ([]File, error) {
+	if in.GroupID != "" || in.Scope != "" {
+		return nil, ErrInvalidInput
+	}
+	tx, e := s.db.BeginTx(ctx, nil)
+	if e != nil {
+		return nil, e
+	}
+	defer tx.Rollback()
+	if e = activeActor(ctx, tx, actor); e != nil {
+		return nil, e
+	}
+	if e = documentAccess(ctx, tx, actor, in.DocumentID, false); e != nil {
+		return nil, e
+	}
+	rows, e := tx.QueryContext(ctx, `SELECT f.id,COALESCE(f.group_id,''),COALESCE(f.document_id,''),f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE f.document_id=? AND f.deleted_at IS NULL AND v.status='published' ORDER BY f.created_at,f.id`, in.DocumentID)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []File{}
+	for rows.Next() {
+		f, e := scanFile(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }

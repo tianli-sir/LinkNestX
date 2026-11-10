@@ -1,3 +1,4 @@
+import { ThemeProvider } from "./runtime/ThemeProvider";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import type { NativeTransport } from "./api/rest";
@@ -7,7 +8,7 @@ import { DesktopProvider, type DesktopAdapter } from "./runtime/DesktopProvider"
 import "./styles.css";
 import "./styles/features.css";
 import "./styles/messaging.css";
-const DEFAULT_VERSION = "0.2.0";
+const DEFAULT_VERSION = "0.3.0";
 declare global {
   interface Window {
     __APP_VERSION__: string;
@@ -22,7 +23,7 @@ export interface AppProps {
   storage?: PreferenceStorage;
 }
 export function App({ transport, desktop, storage }: AppProps = {}) {
-  return <AuthProvider transport={transport} storage={storage}><WorkspaceRouter desktopAdapter={desktop}/></AuthProvider>;
+  return <ThemeProvider><AuthProvider transport={transport} storage={storage}><WorkspaceRouter desktopAdapter={desktop}/></AuthProvider></ThemeProvider>;
 }
 const root = document.getElementById("root");
 if (root)

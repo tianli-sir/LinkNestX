@@ -77,7 +77,9 @@ pub enum ExportOutcome {
 pub trait AuditSavePicker: Send + Sync {
     async fn pick(&self, format: AuditFormat) -> Result<Option<PathBuf>>;
 }
+#[cfg(not(feature = "legacy-host"))]
 pub struct NativeAuditSavePicker;
+#[cfg(not(feature = "legacy-host"))]
 #[async_trait]
 impl AuditSavePicker for NativeAuditSavePicker {
     async fn pick(&self, format: AuditFormat) -> Result<Option<PathBuf>> {

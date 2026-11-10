@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiErrorMessage } from "../api/rest";
-import { isTauri } from "../lib/tauri";
+import { isDesktop } from "../lib/tauri";
 import { LoginScreen, useAuth } from "../auth";
 import { AppShell, type NavigationKey } from "../components/AppShell";
 import { DesktopProvider, type DesktopAdapter, useDesktop } from "../runtime/DesktopProvider";
+import { DocumentsView } from "./documents/DocumentsView";
 import { AdminView } from "./AdminView";
 import { FilesView } from "./FilesView";
 import { GroupsView } from "./GroupsView";
@@ -27,7 +28,7 @@ export function WorkspaceRouter({desktopAdapter}: {desktopAdapter?:DesktopAdapte
     return <><ErrorNotice error={error}/><div data-testid="login-route"><LoginScreen onLogin={async (input) => {
       await login(input);
       setError("");
-    }} showDownloadClient={desktopAdapter?desktopAdapter.kind==="browser":!isTauri()} initialServerUrl={serverUrl} appVersion={window.__APP_VERSION__}/></div></>;
+    }} showDownloadClient={desktopAdapter?desktopAdapter.kind==="browser":!isDesktop()} initialServerUrl={serverUrl} appVersion={window.__APP_VERSION__}/></div></>;
   if (session.user.mustChangePassword)
     return <PasswordChange onLogout={() => void leave()}/>;
   return <DesktopProvider key={session.id + session.user.id} adapter={desktopAdapter}><TransferProvider><Workspace onLogout={() => void leave()}/></TransferProvider></DesktopProvider>;
@@ -38,17 +39,19 @@ function Workspace({ onLogout }: {
   const { session, client } = useAuth();
   const { connection, capabilities, background } = useDesktop();
   const [page, setPage] = useState<NavigationKey>("groups");
+  const [documentsVisited,setDocumentsVisited]=useState(false);
   const [settings, setSettings] = useState(false);
   const [requestedConversation,setRequestedConversation]=useState<{id:string}>();
   const [banner,setBanner]=useState(true);
   useEffect(()=>{const open=(event:Event)=>{const id=(event as CustomEvent).detail?.id;if(typeof id==="string"){setRequestedConversation({id});setPage("groups");setSettings(false)}};window.addEventListener("linknestx:open-conversation",open);return()=>window.removeEventListener("linknestx:open-conversation",open)},[]);
   const queue = useTransfers();
   const user = session!.user;
-  return <AppShell user={user} selected={page} onNavigate={destination => { setPage(destination); setSettings(false); }} connection={connection} activeTransfers={queue.tasks.filter(activeTransfer).length} transferLabel={queue.loading ? "正在读取传输任务" : queue.error ? "传输任务读取失败" : queue.tasks.length > 0 && !queue.tasks.some(activeTransfer) ? "暂无进行中的传输" : undefined} title={settings ? "设置" : undefined} canManage={capabilities.adminWrite} onSettings={() => setSettings(true)} onLogout={onLogout}>
+  return <AppShell user={user} selected={page} onNavigate={destination => { if(destination==="documents")setDocumentsVisited(true);setPage(destination); setSettings(false); }} connection={connection} activeTransfers={queue.tasks.filter(activeTransfer).length} transferLabel={queue.loading ? "正在读取传输任务" : queue.error ? "传输任务读取失败" : queue.tasks.length > 0 && !queue.tasks.some(activeTransfer) ? "暂无进行中的传输" : undefined} title={settings ? "设置" : undefined} canManage={capabilities.adminWrite} onSettings={() => setSettings(true)} onLogout={onLogout}>
   <ErrorNotice error={background.error??""}/>
   {!settings&&<UpdateNotice onOpen={()=>setSettings(true)}/>}
   {!capabilities.nativeTransfers&&banner&&<div className="im-web-banner"><span>网页版 · 轻松沟通，下载 1 GB 以内文件</span><a href="/downloads">下载客户端</a><button aria-label="关闭客户端提示" onClick={()=>setBanner(false)}>×</button></div>}
   <MessagingWorkspace client={client} me={user} active={!settings&&(page==="groups"||page==="contacts")} mode={page==="contacts"?"contacts":"groups"} onNavigate={()=>{setPage("groups");setSettings(false)}} requestedConversation={requestedConversation}/>
+  {documentsVisited&&<DocumentsView client={client} active={!settings&&page==="documents"}/>}
   {settings ? <SettingsView onClose={() => setSettings(false)}/> : page === "pool" ? <FilesView client={client} user={user}/> : page === "transfers" ? <TransfersView queue={queue} onConversation={id=>{setRequestedConversation({id});setPage("groups")}}/> : page === "admin" && user.roles.includes("admin") && capabilities.adminWrite ? <AdminView client={client}/> : null}
  </AppShell>;
 }

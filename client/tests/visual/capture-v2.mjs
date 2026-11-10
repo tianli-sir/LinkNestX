@@ -1,9 +1,11 @@
 import {chromium} from 'playwright';
 import fs from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
 const origin=process.env.VISUAL_ORIGIN??'http://127.0.0.1:1422';
-const output=new URL('../../../docs/verification/v2/',import.meta.url).pathname.replace('/client/docs/','/docs/');
+const output=path.resolve(process.env.LINKNESTX_TEST_OUTPUT??fileURLToPath(new URL('../../../.cache/verification/visual/',import.meta.url)))+path.sep;
 await fs.mkdir(output,{recursive:true});
-const browser=await chromium.launch({headless:true,executablePath:'/Users/another/projects/LinkNestX/.cache/playwright/chromium_headless_shell-1254/chrome-headless-shell-mac-arm64/chrome-headless-shell'});
+const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_EXECUTABLE_PATH}:{})});
 const page=await browser.newPage({viewport:{width:1440,height:960},deviceScaleFactor:1});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.goto(`${origin}/preview-v2.html`);await page.getByRole('heading',{name:'登录工作区'}).waitFor();

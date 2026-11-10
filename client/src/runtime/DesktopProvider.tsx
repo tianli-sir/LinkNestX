@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke, isTauri, type Invoke } from "../lib/tauri";
+import { invoke, isTauri, isDesktop, type Invoke } from "../lib/tauri";
 import type { ConnectionState } from "../components/AppShell";
 import { browserCapabilities, nativeCapabilities } from "./capabilities";
 import { createBrowserAdapter } from "./browserAdapter";
 import { apiErrorMessage } from "../api/rest";
 export interface DesktopAdapter {
-  kind?: "browser" | "native";
+  kind?: "browser" | "native" | "legacy";
   invoke: Invoke;
   listen(event: string, callback: (payload: any) => void): Promise<() => void>;
 }
@@ -39,8 +39,8 @@ export function DesktopProvider({ children, adapter: suppliedAdapter }: {
   children: ReactNode;
   adapter?: DesktopAdapter;
 }) {
-  const adapter = useMemo(() => suppliedAdapter ?? (isTauri() ? nativeDesktop : createBrowserAdapter()), [suppliedAdapter]);
-  const [foreground,setForeground]=useState(!isTauri());
+  const adapter = useMemo(() => suppliedAdapter ?? window.__LINKNESTX_DESKTOP__ ?? (isTauri() ? nativeDesktop : createBrowserAdapter()), [suppliedAdapter]);
+  const [foreground,setForeground]=useState(!isDesktop());
   const [connection, setConnection] = useState<ConnectionState>({ status: "connecting" });
   const [background,setBackground]=useState<BackgroundStatus>({sharingEnabled:false,activeUploads:0});
   const subscribers = useRef(new Map<string, Set<(payload: any) => void>>());
@@ -66,7 +66,7 @@ export function DesktopProvider({ children, adapter: suppliedAdapter }: {
         if (name === "window.foreground") setForeground(payload===true);
         if (name === "connection.changed" && ["connected", "connecting", "disconnected", "error"].includes(payload?.status))
           setConnection({ status: payload.status });
-        if (name === "server.event" && payload?.type === "session.ready")
+        if (name === "server.event" && payload?.type === "session.ready" && !payload.localResync)
           setConnection({ status: "connected" });
         if(["service.status","service.error","sharing.changed","sharing.activity"].includes(name))backgroundEvents++;
         if(name==="service.status"&&payload) setBackground(payload);
@@ -91,7 +91,7 @@ export function DesktopProvider({ children, adapter: suppliedAdapter }: {
       removers.forEach(remove => remove());
     };
   }, [adapter]);
-  const value = useMemo(() => ({ desktop: adapter, connection, subscribe,background, foreground, capabilities: adapter.kind === "browser" ? browserCapabilities : nativeCapabilities }), [adapter, connection, subscribe,background,foreground]);
+  const value = useMemo(() => ({ desktop: adapter, connection, subscribe,background, foreground, capabilities: adapter.kind === "browser" ? browserCapabilities : adapter.kind === "legacy" ? {...nativeCapabilities,updates:false} : nativeCapabilities }), [adapter, connection, subscribe,background,foreground]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 export function useDesktop() {

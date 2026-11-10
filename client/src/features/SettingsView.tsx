@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { apiErrorMessage } from "../api/rest";
 import { useAuth } from "../auth";
 import { useDesktop } from "../runtime/DesktopProvider";
+import { ThemeControl } from "../runtime/ThemeProvider";
 import { UpdatePanel } from "./UpdatePanel";
 import { DevicesView } from "./DevicesView";
 import { ErrorNotice, Field, Loading, useResource } from "./shared";
@@ -16,7 +17,7 @@ export function SettingsView({ onClose }: {
   const { session, client } = useAuth();
   const { desktop, capabilities } = useDesktop();
   const resource = useResource("transfer-preferences", () => capabilities.nativeTransfers ? desktop.invoke<TransferPreferences>("get_transfer_preferences") : Promise.resolve(null));
-  return <section className="ln-feature ln-settings"><div className="ln-toolbar"><h2>设置</h2><button className="ln-button ln-button-secondary" onClick={onClose}>返回工作区</button></div><dl className="ln-account-details"><dt>当前账号</dt><dd>{session?.user.displayName ?? session?.user.username}</dd></dl><DevicesView client={client}/><UpdatePanel/><ErrorNotice error={resource.error} retry={resource.refresh}/>{resource.loading && <Loading />}{resource.data && <TransferPreferencesForm key={JSON.stringify(resource.data)} initial={resource.data}/>}</section>;
+  return <section className="ln-feature ln-settings"><div className="ln-toolbar"><h2>设置</h2><button className="ln-button ln-button-secondary" onClick={onClose}>返回工作区</button></div><dl className="ln-account-details"><dt>当前账号</dt><dd>{session?.user.displayName ?? session?.user.username}</dd></dl><section className="ln-settings-appearance"><h3>外观</h3><p className="ln-muted">选择舒适的阅读方式，跟随系统会自动切换浅色与深色。</p><ThemeControl/></section><DevicesView client={client}/><UpdatePanel/><ErrorNotice error={resource.error} retry={resource.refresh}/>{resource.loading && <Loading />}{resource.data && <TransferPreferencesForm key={JSON.stringify(resource.data)} initial={resource.data}/>}</section>;
 }
 function TransferPreferencesForm({ initial }: {
   initial: TransferPreferences;

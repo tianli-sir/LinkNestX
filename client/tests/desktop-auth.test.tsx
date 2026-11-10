@@ -214,7 +214,7 @@ describe("AuthProvider", () => {
 describe("AppShell", () => {
   it("navigates Chinese destinations, exposes real connection state, and hides management from employees", () => {
     function Shell({ roles = ["employee"] }: { roles?: string[] }) {
-      const [selected, setSelected] = useState<"groups" | "contacts" | "pool" | "transfers" | "admin">("groups");
+      const [selected, setSelected] = useState<"groups" | "documents" | "contacts" | "pool" | "transfers" | "admin">("groups");
       return <AppShell user={{ username: "li", roles }} selected={selected} onNavigate={setSelected} connection={{ status: "connected", label: "已连接到公司服务器" }} activeTransfers={2}>
         <p>工作区内容</p>
       </AppShell>;

@@ -13,6 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  server:
+    name: Server tests (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: server/go.sum
+      - name: Server tests, race detector and static analysis
+        run: |
+          go test -mod=readonly ./server/...
+          go test -race -mod=readonly ./server/...
+          go vet -mod=readonly ./server/...
   desktop:
     name: Test and build (${{ matrix.os }})
     strategy:
@@ -45,6 +60,7 @@ jobs:
         working-directory: client
         run: npm ci
       - name: Go tests
+        if: runner.os != 'Windows'
         run: go test -mod=readonly ./server/...
       - name: Frontend tests and production build
         working-directory: client
@@ -54,6 +70,7 @@ jobs:
       - name: Native tests
         run: cargo test --locked --manifest-path client/src-tauri/Cargo.toml
       - name: Real Go and native multi-source smoke
+        if: runner.os != 'Windows'
         run: bash scripts/smoke-test.sh
       - name: Build native application without installers
         working-directory: client

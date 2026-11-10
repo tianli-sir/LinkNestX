@@ -37,7 +37,7 @@ pub struct TransferService {
     closing: AtomicBool,
     lifecycle_cursor: Mutex<usize>,
     maintenance_cancel: CancellationToken,
-    maintenance: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    maintenance: Mutex<Option<crate::runtime::JoinHandle<()>>>,
 }
 impl TransferService {
     pub fn open(
@@ -81,7 +81,7 @@ impl TransferService {
         let weak = Arc::downgrade(&service);
         let cancel = service.maintenance_cancel.clone();
         let mut changes = service.events.subscribe();
-        let maintenance = tauri::async_runtime::spawn(async move {
+        let maintenance = crate::runtime::spawn(async move {
             let mut timer = tokio::time::interval(std::time::Duration::from_secs(30));
             loop {
                 tokio::select! {_=cancel.cancelled()=>break,_=timer.tick()=>{},_=async {match &mut changes {Some(rx)=>{let _=rx.recv().await;},None=>std::future::pending::<()>().await}}=>{}}
@@ -125,6 +125,7 @@ impl TransferService {
     pub(crate) fn persist(&self, task: &Task) -> Result<()> {
         let mut task = task.clone();
         task.snapshot.group_id = task.group_id.clone();
+        task.snapshot.document_id = task.document_id.clone();
         if let Some(live) = super::metrics::observer(&task.owner, &task.snapshot.id) {
             live.phase(&task.snapshot.state);
             task.metrics_record =
@@ -210,7 +211,26 @@ impl TransferService {
         owned_source: bool,
         display_name_override: Option<String>,
     ) -> Result<String> {
-        segment(&group_id)?;
+        self.start_upload_to(
+            UploadTarget::Group(group_id),
+            source,
+            file_id,
+            client_attachment_id,
+            owned_source,
+            display_name_override,
+        )
+        .await
+    }
+    pub async fn start_upload_to(
+        self: &Arc<Self>,
+        target: UploadTarget,
+        source: String,
+        file_id: Option<String>,
+        client_attachment_id: Option<String>,
+        owned_source: bool,
+        display_name_override: Option<String>,
+    ) -> Result<String> {
+        target.validate()?;
         if let Some(ref id) = file_id {
             segment(id)?;
         }
@@ -237,7 +257,10 @@ impl TransferService {
         if let Some(name) = display_name_override {
             task.snapshot.name = name;
         }
-        task.group_id = Some(group_id);
+        match target {
+            UploadTarget::Group(id) => task.group_id = Some(id),
+            UploadTarget::Document(id) => task.document_id = Some(id),
+        };
         task.file_id = file_id;
         self.schedule(task).await
     }
@@ -658,7 +681,7 @@ impl TransferService {
         }
         Ok(())
     }
-    /// Task8 supplies peer sources; keep the authenticated server fallback last.
+    /// Peer sources precede the authenticated server fallback.
     pub async fn set_peer_sources(&self, mut peers: Vec<Arc<dyn ChunkSource>>) {
         peers.push(Arc::new(ServerSource(self.auth.clone())));
         *self.sources.write().await = peers;

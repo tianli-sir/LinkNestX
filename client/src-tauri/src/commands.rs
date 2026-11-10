@@ -349,7 +349,40 @@ pub async fn start_attachment_upload(
     client_attachment_id: String,
     file_id: Option<String>,
 ) -> Result<String> {
-    crate::transfer::models::segment(&group_id)?;
+    start_owned_attachment_upload(
+        state,
+        crate::transfer::models::UploadTarget::Group(group_id),
+        source_handle,
+        client_attachment_id,
+        file_id,
+    )
+    .await
+}
+#[tauri::command]
+pub async fn start_document_attachment_upload(
+    state: tauri::State<'_, NativeState>,
+    document_id: String,
+    source_handle: String,
+    client_attachment_id: String,
+    file_id: Option<String>,
+) -> Result<String> {
+    start_owned_attachment_upload(
+        state,
+        crate::transfer::models::UploadTarget::Document(document_id),
+        source_handle,
+        client_attachment_id,
+        file_id,
+    )
+    .await
+}
+async fn start_owned_attachment_upload(
+    state: tauri::State<'_, NativeState>,
+    target: crate::transfer::models::UploadTarget,
+    source_handle: String,
+    client_attachment_id: String,
+    file_id: Option<String>,
+) -> Result<String> {
+    target.validate()?;
     crate::transfer::models::segment(&client_attachment_id)?;
     let _activity = state.auth.activity.try_enter()?;
     let scope = state.auth.selection_scope().await?;
@@ -375,8 +408,8 @@ pub async fn start_attachment_upload(
         .to_owned();
     let task = state
         .transfers
-        .start_upload_with_attachment(
-            group_id,
+        .start_upload_to(
+            target,
             path,
             file_id,
             Some(client_attachment_id),
@@ -476,6 +509,52 @@ pub async fn profile_avatar(
 }
 
 #[tauri::command]
+pub async fn document_attachment_preview(
+    state: tauri::State<'_, NativeState>,
+    document_id: String,
+    version_id: String,
+) -> Result<String> {
+    use base64::Engine;
+    crate::transfer::models::segment(&document_id)?;
+    crate::transfer::models::segment(&version_id)?;
+    let owner = state.auth.owner().await?;
+    let response = state
+        .auth
+        .request_for(
+            &owner,
+            "GET",
+            &format!("/api/v1/documents/{document_id}/attachments/{version_id}/preview"),
+            None,
+            false,
+        )
+        .await?;
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .to_owned();
+    if !matches!(
+        mime.as_str(),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+    ) {
+        return Err(TransferError::new("此附件不支持图片预览"));
+    }
+    let bytes = crate::auth::session::limited_body(response, 10 * 1024 * 1024).await?;
+    if state.auth.owner().await? != owner {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    Ok(format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+#[tauri::command]
 pub fn get_update_status(
     updater: tauri::State<'_, Arc<crate::update::UpdateService>>,
 ) -> crate::update::UpdateStatus {
@@ -512,4 +591,11 @@ pub async fn install_ready_update(
         app.exit(0);
     }
     Ok(updater.status())
+}
+
+#[tauri::command]
+pub async fn open_external_url(url: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || crate::external::open(&url))
+        .await
+        .map_err(|_| TransferError::new("链接打开已取消"))?
 }

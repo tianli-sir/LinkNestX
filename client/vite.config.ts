@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   base: "./",
+  build: { target: "chrome108" },
   plugins: [react()],
   clearScreen: false,
   server: {

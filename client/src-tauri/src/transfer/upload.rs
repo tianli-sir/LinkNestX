@@ -94,7 +94,7 @@ impl TransferService {
                 .await?,
             )?
         } else {
-            let body = json!({"groupId":task.group_id,"name":manifest.name,"size":manifest.size,"sha256":manifest.sha256,"chunkSize":manifest.chunk_size,"chunks":manifest.chunks,"fileId":task.file_id});
+            let body = json!({"groupId":task.group_id,"documentId":task.document_id,"name":manifest.name,"size":manifest.size,"sha256":manifest.sha256,"chunkSize":manifest.chunk_size,"chunks":manifest.chunks,"fileId":task.file_id});
             serde_json::from_value(
                 cancellable(
                     cancel,

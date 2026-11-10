@@ -1,0 +1,13 @@
+{
+  "name": "linknestx-windows-legacy",
+  "version": "0.3.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Windows 7 SP1 desktop compatibility host for LinkNestX",
+  "main": "shell/main.cjs",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "start": "electron ."
+  },
+  "devDependencies": { "electron": "22.3.27" }
+}

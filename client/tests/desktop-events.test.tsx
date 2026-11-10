@@ -61,6 +61,8 @@ describe("real desktop event adapter", () => {
 
     await act(async () => { await emit("connection:changed", { status: "disconnected" }); });
     expect(screen.getByLabelText("连接状态")).toHaveTextContent("disconnected");
+    await act(async () => { await emit("server:event", { type: "session.ready", localResync: true }); });
+    expect(screen.getByLabelText("连接状态")).toHaveTextContent("disconnected");
     await act(async () => { await emit("server:event", { type: "session.ready" }); });
     expect(screen.getByLabelText("连接状态")).toHaveTextContent("connected");
     await act(async () => {

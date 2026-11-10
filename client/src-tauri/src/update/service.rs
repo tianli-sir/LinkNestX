@@ -441,6 +441,11 @@ mod review_tests {
     use super::*;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
     use ring::signature::{Ed25519KeyPair, KeyPair};
+    fn next_version(offset: u64) -> String {
+        let mut version = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+        version.patch += offset;
+        version.to_string()
+    }
     fn cached_failed_release() -> (tempfile::TempDir, Vec<u8>, Vec<u8>, String) {
         let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
         let key = Ed25519KeyPair::from_seed_unchecked(&[71; 32]).unwrap();
@@ -451,7 +456,7 @@ mod review_tests {
         } else {
             "Contents/MacOS/linknestx"
         };
-        let manifest = serde_json::json!({"schemaVersion":1,"appId":"com.linknestx.client","channel":"stable","platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"version":"0.2.1","buildSequence":2,"issuedAt":now.to_rfc3339(),"expiresAt":(now+chrono::Duration::days(1)).to_rfc3339(),"entryPoint":path,"totalBytes":3,"files":[{"path":path,"mode":493,"size":3,"sha256":manifest::hash(b"new"),"blocks":[{"sha256":manifest::hash(b"new"),"size":3}]}]});
+        let manifest = serde_json::json!({"schemaVersion":1,"appId":"com.linknestx.client","channel":"stable","platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"version":next_version(1),"buildSequence":manifest::BUILD_SEQUENCE+1,"issuedAt":now.to_rfc3339(),"expiresAt":(now+chrono::Duration::days(1)).to_rfc3339(),"entryPoint":path,"totalBytes":3,"files":[{"path":path,"mode":493,"size":3,"sha256":manifest::hash(b"new"),"blocks":[{"sha256":manifest::hash(b"new"),"size":3}]}]});
         let raw = serde_json::to_vec(&manifest).unwrap();
         let mut message = b"LinkNestX-update-manifest-v1\0".to_vec();
         message.extend(&raw);
@@ -465,7 +470,7 @@ mod review_tests {
         files::atomic_write(
             &root.path().join("updates/accepted.json"),
             &serde_json::to_vec(&Accepted {
-                sequence: 2,
+                sequence: manifest::BUILD_SEQUENCE + 1,
                 envelope_hash: identity,
             })
             .unwrap(),
@@ -478,7 +483,7 @@ mod review_tests {
         files::atomic_write(&jobdir.join("phase"), b"rolledBack").unwrap();
         files::atomic_write(&jobdir.join("error"), b"health confirmation timed out").unwrap();
         // The same persisted job metadata produced by the trusted handoff; no helper is launched here.
-        let job = serde_json::json!({"id":id,"tx":{"target":root.path().join("LinkNestX.app"),"staged":root.path().join("staged"),"journal":jobdir.join("phase"),"id":id,"old_digest":"fixture"},"parent_pid":0,"nonce":"fixture","helper_sha256":"fixture","helper_size":0,"version":"0.2.1","sequence":2,"prepared_at":now.timestamp()});
+        let job = serde_json::json!({"id":id,"tx":{"target":root.path().join("LinkNestX.app"),"staged":root.path().join("staged"),"journal":jobdir.join("phase"),"id":id,"old_digest":"fixture"},"parent_pid":0,"nonce":"fixture","helper_sha256":"fixture","helper_size":0,"version":next_version(1),"sequence":manifest::BUILD_SEQUENCE+1,"prepared_at":now.timestamp()});
         files::atomic_write(&jobdir.join("job.json"), &serde_json::to_vec(&job).unwrap()).unwrap();
         (root, public, envelope, id)
     }
@@ -581,7 +586,7 @@ mod review_tests {
             &std::fs::read(root.path().join("updates/accepted.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(accepted.sequence, 2);
+        assert_eq!(accepted.sequence, manifest::BUILD_SEQUENCE + 1);
         server.abort();
     }
     #[test]
@@ -592,8 +597,8 @@ mod review_tests {
         let mut m: serde_json::Value =
             serde_json::from_slice(&B64.decode(signed["manifest"].as_str().unwrap()).unwrap())
                 .unwrap();
-        m["version"] = "0.2.2".into();
-        m["buildSequence"] = 3.into();
+        m["version"] = next_version(2).into();
+        m["buildSequence"] = (manifest::BUILD_SEQUENCE + 2).into();
         let raw = serde_json::to_vec(&m).unwrap();
         signed["manifest"] = B64.encode(&raw).into();
         let key = Ed25519KeyPair::from_seed_unchecked(&[71; 32]).unwrap();
@@ -610,7 +615,7 @@ mod review_tests {
         files::atomic_write(
             &root.path().join("updates/accepted.json"),
             &serde_json::to_vec(&Accepted {
-                sequence: 3,
+                sequence: manifest::BUILD_SEQUENCE + 2,
                 envelope_hash: identity,
             })
             .unwrap(),
@@ -628,7 +633,10 @@ mod review_tests {
         files::atomic_write(&release.join("manifest.json"), &higher).unwrap();
         update.restore_ready_with_key(&public).unwrap();
         assert_eq!(update.status().state, "ready");
-        assert_eq!(update.status().version.as_deref(), Some("0.2.2"));
+        assert_eq!(
+            update.status().version.as_deref(),
+            Some(next_version(2).as_str())
+        );
         assert!(update.status().error.is_none());
         let jobdir = root.path().join("updates/jobs").join(id);
         assert_eq!(std::fs::read(jobdir.join("phase")).unwrap(), b"rolledBack");

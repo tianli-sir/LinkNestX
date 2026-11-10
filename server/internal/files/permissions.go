@@ -12,6 +12,7 @@ import (
 
 	"github.com/linknestx/linknestx/server/internal/auth"
 	"github.com/linknestx/linknestx/server/internal/groups"
+	"github.com/linknestx/linknestx/server/internal/notes"
 )
 
 type queryer interface {
@@ -19,15 +20,15 @@ type queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 type fileState struct {
-	id, groupID, createdBy, visibility, current string
-	deleted                                     bool
-	listed                                      bool
+	id, groupID, documentID, createdBy, visibility, current string
+	deleted                                                 bool
+	listed                                                  bool
 }
 
 func loadFile(ctx context.Context, q queryer, id string) (fileState, error) {
 	var f fileState
 	var deleted, current sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT id,group_id,created_by,visibility,current_version_id,deleted_at,listed FROM files WHERE id=?`, id).Scan(&f.id, &f.groupID, &f.createdBy, &f.visibility, &current, &deleted, &f.listed)
+	err := q.QueryRowContext(ctx, `SELECT id,COALESCE(group_id,''),COALESCE(document_id,''),created_by,visibility,current_version_id,deleted_at,listed FROM files WHERE id=?`, id).Scan(&f.id, &f.groupID, &f.documentID, &f.createdBy, &f.visibility, &current, &deleted, &f.listed)
 	f.deleted = deleted.Valid
 	f.current = current.String
 	if errors.Is(err, sql.ErrNoRows) {
@@ -66,6 +67,9 @@ func admin(ctx context.Context, q queryer, actorID string) (bool, error) {
 	return n > 0, err
 }
 func access(ctx context.Context, q queryer, actorID string, f fileState) error {
+	if f.documentID != "" {
+		return documentAccess(ctx, q, actorID, f.documentID, false)
+	}
 	if direct, err := groups.RequireDirectMember(ctx, q, actorID, f.groupID); direct || err != nil {
 		return err
 	}
@@ -85,6 +89,9 @@ func access(ctx context.Context, q queryer, actorID string, f fileState) error {
 	return member(ctx, q, actorID, f.groupID)
 }
 func manage(ctx context.Context, q queryer, actorID string, f fileState) error {
+	if f.documentID != "" {
+		return documentAccess(ctx, q, actorID, f.documentID, true)
+	}
 	if direct, err := groups.RequireDirectMember(ctx, q, actorID, f.groupID); direct || err != nil {
 		if err != nil {
 			return err
@@ -146,6 +153,7 @@ func (s *FileService) authorizedVersion(ctx context.Context, q queryer, actorID,
 		return m, err
 	}
 	m.Visibility = f.visibility
+	m.DocumentID = f.documentID
 	m.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
 	if err != nil {
 		return m, err
@@ -272,4 +280,12 @@ func fileGroupAccess(ctx context.Context, q queryer, actorID, groupID string) er
 		return nil
 	}
 	return member(ctx, q, actorID, groupID)
+}
+
+func documentAccess(ctx context.Context, q queryer, actor, id string, write bool) error {
+	err := notes.Authorize(ctx, q, actor, id, write)
+	if errors.Is(err, notes.ErrNotFound) || errors.Is(err, notes.ErrForbidden) {
+		return ErrForbidden
+	}
+	return err
 }

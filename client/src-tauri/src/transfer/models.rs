@@ -178,6 +178,21 @@ pub enum Direction {
     Upload,
     Download,
 }
+#[derive(Debug, Clone)]
+pub enum UploadTarget {
+    Group(String),
+    Document(String),
+}
+impl UploadTarget {
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::Group(id) | Self::Document(id) => {
+                segment(id)?;
+                Ok(())
+            }
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskSnapshot {
@@ -191,6 +206,8 @@ pub struct TaskSnapshot {
     pub active_sources: Vec<String>,
     #[serde(default)]
     pub group_id: Option<String>,
+    #[serde(default)]
+    pub document_id: Option<String>,
     #[serde(default)]
     pub client_attachment_id: Option<String>,
     #[serde(default)]
@@ -209,6 +226,8 @@ pub struct Task {
     pub manifest: Option<Manifest>,
     pub verified: Vec<bool>,
     pub group_id: Option<String>,
+    #[serde(default)]
+    pub document_id: Option<String>,
     pub file_id: Option<String>,
     pub upload_id: Option<String>,
     #[serde(default)]
@@ -240,6 +259,7 @@ impl Task {
                 total_bytes: 0,
                 active_sources: Vec::new(),
                 group_id: None,
+                document_id: None,
                 client_attachment_id: None,
                 message_id: None,
                 metrics: metrics.clone(),
@@ -251,6 +271,7 @@ impl Task {
             manifest: None,
             verified: Vec::new(),
             group_id: None,
+            document_id: None,
             file_id: None,
             upload_id: None,
             resume_on_login: false,

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const output = path.join(root, 'docs/verification/v2');
+const output = path.resolve(process.env.LINKNESTX_TEST_OUTPUT ?? path.join(root, '.cache/verification/integration'));
 const scratch = await fs.mkdtemp(path.join(root, '.cache/v2-web-'));
 await fs.mkdir(output, { recursive: true });
 const probe = net.createServer();

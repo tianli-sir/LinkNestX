@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { apiErrorMessage } from "../api/rest";
-import { isTauri } from "../lib/tauri";
+import { isDesktop } from "../lib/tauri";
+import { ThemeControl } from "../runtime/ThemeProvider";
 import { Icon } from "../components/Icon";
 import type { LoginInput } from "./types";
 import "../styles/desktop.css";
@@ -16,7 +17,7 @@ type Field = "username" | "password";
 type Errors = Partial<Record<Field, string>>;
 const fieldLabels: Record<Field, string> = { username: "账号", password: "密码" };
 
-export function LoginScreen({ onLogin, appVersion, showDownloadClient = !isTauri() }: LoginScreenProps) {
+export function LoginScreen({ onLogin, appVersion, showDownloadClient = !isDesktop() }: LoginScreenProps) {
   const id = useId();
   const [values, setValues] = useState({ username: "", password: "" });
   const [errors, setErrors] = useState<Errors>({});
@@ -48,7 +49,8 @@ export function LoginScreen({ onLogin, appVersion, showDownloadClient = !isTauri
   }
 
   return <main className="ln-login" aria-labelledby={`${id}-title`}>
-    <div className="ln-login-brand"><span className="ln-brand-mark"><Icon name="nest" size={24} /></span><strong>LinkNestX</strong><span>企业协作</span></div>
+    <div className="ln-login-top"><div className="ln-login-brand"><span className="ln-brand-mark"><Icon name="nest" size={24} /></span><strong>LinkNestX</strong><span>企业协作</span></div><ThemeControl/></div>
+    <div className="ln-login-layout"><section className="ln-login-story" aria-label="团队协作"><span className="ln-eyebrow">A LITTLE MORE CONNECTED</span><h2>好想法，<br/>在一起发生<span>。</span></h2><p>从一句讨论，到一份共享的经验。<br/>让消息、文件与知识，连接每一位同事。</p><div className="ln-login-art" aria-hidden="true"><div className="ln-art-note"><Icon name="documents" size={26}/><span>灵感 → 共识 → 行动</span><i/><i/><i/></div><div className="ln-art-chat"><Icon name="chat" size={23}/><span>一起向前，多一点可能。</span></div><div className="ln-art-file"><Icon name="folder" size={24}/><span>让分享，触手可及。</span></div></div><div className="ln-login-values"><span>即刻沟通</span><span>安心分享</span><span>知识沉淀</span></div></section><div className="ln-login-form-area">
     <section className="ln-login-panel">
       <header className="ln-login-heading"><h1 id={`${id}-title`}>登录工作区</h1><p>让沟通与文件，在同一个地方。</p></header>
       <form aria-label="员工登录" onSubmit={(event) => { void submit(event); }} noValidate aria-busy={busy}>
@@ -78,6 +80,6 @@ export function LoginScreen({ onLogin, appVersion, showDownloadClient = !isTauri
       <p className="ln-login-help"><Icon name="info" size={16} />还没有账号？请联系企业管理员。</p>
     </section>
     {showDownloadClient&&<a className="ln-download-client" href="/downloads">下载桌面客户端 · 完整文件体验</a>}
-    <footer className="ln-login-footer"><span><Icon name="lock" size={14} />连接你的企业工作区</span>{appVersion && <span className="ln-version" data-testid="app-version">版本 {appVersion}</span>}</footer>
+    <footer className="ln-login-footer"><span><Icon name="lock" size={14} />连接你的企业工作区</span>{appVersion && <span className="ln-version" data-testid="app-version">版本 {appVersion}</span>}</footer></div></div>
   </main>;
 }

@@ -1,4 +1,4 @@
-import { invoke, isTauri, type Invoke } from "../lib/tauri";
+import { invoke, isDesktop, type Invoke } from "../lib/tauri";
 import type { LoginInput, Session } from "../auth/types";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -62,7 +62,7 @@ export function normalizeServerUrl(value: string): string {
 }
 
 const desktopInvoke: Invoke = async <T>(command: string, args?: Record<string, unknown>) => {
-  if (!isTauri()) throw new ApiError("请在 LinkNestX 桌面应用中登录；浏览器预览无法连接工作区");
+  if (!isDesktop()) throw new ApiError("请在 LinkNestX 桌面应用中登录；浏览器预览无法连接工作区");
   return invoke<T>(command, args);
 };
 

@@ -73,7 +73,7 @@ func TestMigrationHistoryAndExistingDatabaseUpgrade(t *testing.T) {
 		}
 	}
 	var count int
-	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 8 {
+	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 9 {
 		t.Fatalf("migration history=%d err=%v", count, err)
 	}
 	if err := conn.QueryRow("SELECT count(*) FROM messages").Scan(&count); err != nil {
@@ -224,5 +224,91 @@ func TestProfilesUpgradeNumbersAvoidLegacyNumericNames(t *testing.T) {
 	conn.QueryRow(`SELECT account_number FROM profiles WHERE user_id='alice'`).Scan(&after)
 	if after != number {
 		t.Fatal("number changed")
+	}
+}
+
+func TestDocumentMigrationPreservesFileChildrenAndEnforcesOwnership(t *testing.T) {
+	conn, e := Open(filepath.Join(t.TempDir(), "document-upgrade.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer conn.Close()
+	if _, e = conn.Exec(`CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)`); e != nil {
+		t.Fatal(e)
+	}
+	for _, name := range []string{"001_initial.sql", "002_groups_chat.sql", "003_files.sql", "004_transfer_audit.sql", "005_peers.sql", "006_administration_audit.sql", "007_pool_sharing.sql", "008_collaboration.sql"} {
+		raw, e := migrations.Files.ReadFile(name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = conn.Exec(string(raw)); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = conn.Exec(`INSERT INTO schema_migrations VALUES(?,'x')`, name); e != nil {
+			t.Fatal(e)
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO users(id,username,password_hash,created_at,updated_at) VALUES('u','legacy','h','x','x')`,
+		`INSERT INTO groups(id,name,created_by,created_at) VALUES('g','group','u','x')`,
+		`INSERT INTO files(id,group_id,name,created_by,current_version_id,created_at) VALUES('f','g','old','u','v','x')`,
+		`INSERT INTO file_versions(id,file_id,created_by,name,size,sha256,chunk_size,status,created_at)VALUES('v','f','u','old',4,'hash',4,'published','x')`,
+		`INSERT INTO file_memberships VALUES('f','g')`,
+		`INSERT INTO file_chunks VALUES('v',0,'hash',4)`,
+		`INSERT INTO upload_sessions(id,version_id,user_id,created_at,expires_at)VALUES('upload','v','u','x','y')`,
+		`INSERT INTO upload_receipts VALUES('upload',0,'x')`,
+		`INSERT INTO group_members VALUES('g','u','owner','x')`,
+		`INSERT INTO messages(id,group_id,sender_id,client_message_id,body,created_at,file_id,file_version_id)VALUES('m','g','u','client','old','x','f','v')`,
+	} {
+		if _, e = conn.Exec(q); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = ApplyMigrations(context.Background(), conn); e != nil {
+		t.Fatal(e)
+	}
+	for _, table := range []string{"files", "file_versions", "file_memberships", "file_chunks", "upload_sessions", "upload_receipts", "messages"} {
+		var n int
+		if e = conn.QueryRow(`SELECT count(*) FROM ` + table).Scan(&n); e != nil || n != 1 {
+			t.Fatalf("%s=%d %v", table, n, e)
+		}
+	}
+	var version string
+	if e = conn.QueryRow(`SELECT file_version_id FROM messages WHERE id='m'`).Scan(&version); e != nil || version != "v" {
+		t.Fatalf("message attachment %s %v", version, e)
+	}
+	if _, e = conn.Exec(`INSERT INTO files(id,name,created_by,created_at)VALUES('orphan','orphan','u','x')`); e == nil {
+		t.Fatal("ownerless file accepted")
+	}
+	if _, e = conn.Exec(`INSERT INTO files(id,group_id,name,created_by,created_at)VALUES('bad','absent','bad','u','x')`); e == nil {
+		t.Fatal("foreign key not restored")
+	}
+	if e = ApplyMigrations(context.Background(), conn); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func TestMigrationFailureRestoresForeignKeysAndRollsBack(t *testing.T) {
+	conn, e := Open(filepath.Join(t.TempDir(), "invalid.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer conn.Close()
+	if e = ApplyMigrations(context.Background(), conn); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = conn.Exec(`PRAGMA foreign_keys=OFF;INSERT INTO files(id,group_id,name,created_by,created_at) VALUES('bad','missing','bad','missing','x');PRAGMA foreign_keys=ON;`); e != nil {
+		t.Fatal(e)
+	}
+	if e = ApplyMigrations(context.Background(), conn); e == nil {
+		t.Fatal("invalid foreign keys accepted")
+	}
+	var enabled int
+	if e = conn.QueryRow(`PRAGMA foreign_keys`).Scan(&enabled); e != nil || enabled != 1 {
+		t.Fatalf("foreign keys %d %v", enabled, e)
+	}
+	var n int
+	if e = conn.QueryRow(`SELECT count(*) FROM files WHERE id='bad'`).Scan(&n); e != nil || n != 1 {
+		t.Fatal("migration silently erased prior data")
 	}
 }

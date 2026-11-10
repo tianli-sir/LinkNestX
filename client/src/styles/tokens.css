@@ -1,30 +1,9 @@
 :root {
-  --ln-color-background: #f4f7f7;
-  --ln-color-surface: #ffffff;
-  --ln-color-text: #182c2b;
-  --ln-color-muted: #526b68;
-  --ln-color-primary: #0f766e;
-  --ln-color-primary-hover: #115e59;
-  --ln-color-primary-soft: #e6f4f1;
-  --ln-color-sharing: #177864;
-  --ln-color-sharing-soft: #edf7f3;
-  --ln-color-border: #dce7e4;
-  --ln-color-input-border: #8aa29d;
-  --ln-color-error: #b42336;
-  --ln-color-error-soft: #fff3f3;
-  --ln-font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --ln-font-body: 14px;
-  --ln-font-secondary: 12px;
-  --ln-font-heading: 22px;
-  --ln-radius-control: 8px;
-  --ln-space-1: 4px;
-  --ln-space-2: 8px;
-  --ln-space-3: 12px;
-  --ln-space-4: 16px;
-  --ln-space-5: 20px;
-  --ln-space-6: 24px;
-  --ln-space-8: 32px;
-  --ln-rail-width: 76px;
-  --ln-header-height: 64px;
-  --ln-motion-fast: 140ms;
+  --ln-color-background:#f6f7fb;--ln-color-surface:#ffffff;--ln-color-surface-alt:#f0f2f7;
+  --ln-color-text:#242938;--ln-color-muted:#778095;--ln-color-primary:#4059e8;--ln-color-primary-hover:#3049d1;--ln-color-primary-soft:#eef1ff;--ln-color-on-primary:#ffffff;
+  --ln-color-sharing:#407b68;--ln-color-sharing-soft:#eff7f3;--ln-color-border:#e7eaf1;--ln-color-input-border:#d4dae6;
+  --ln-color-error:#c4475b;--ln-color-error-soft:#fff0f2;--ln-rail-bg:#242938;--ln-rail-fg:#a2aabd;--ln-rail-active:#3a435a;--ln-shadow:0 12px 40px rgba(29,41,74,.06);
+  --ln-font-family:"Avenir Next","PingFang SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --ln-font-body:14px;--ln-font-secondary:12px;--ln-font-heading:22px;--ln-radius-control:10px;--ln-space-1:4px;--ln-space-2:8px;--ln-space-3:12px;--ln-space-4:16px;--ln-space-5:20px;--ln-space-6:24px;--ln-space-8:32px;--ln-rail-width:80px;--ln-header-height:64px;--ln-motion-fast:140ms;
 }
+:root[data-theme=dark]{--ln-color-background:#151821;--ln-color-surface:#1c202b;--ln-color-surface-alt:#242a37;--ln-color-text:#edf0f8;--ln-color-muted:#9ca6bc;--ln-color-primary:#a2b0ff;--ln-color-primary-hover:#bdc7ff;--ln-color-primary-soft:#2a3253;--ln-color-on-primary:#182044;--ln-color-sharing:#91c7b0;--ln-color-sharing-soft:#243730;--ln-color-border:#303747;--ln-color-input-border:#434d63;--ln-color-error:#ff9dac;--ln-color-error-soft:#402631;--ln-rail-bg:#11141d;--ln-rail-fg:#8d97ae;--ln-rail-active:#2a3350;--ln-shadow:0 12px 40px rgba(0,0,0,.15)}

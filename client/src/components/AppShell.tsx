@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { ThemeControl } from "../runtime/ThemeProvider";
 import { Icon, type IconName } from "./Icon";
 import "../styles/desktop.css";
 
-export type NavigationKey = "groups" | "contacts" | "pool" | "transfers" | "admin";
+export type NavigationKey = "groups" | "documents" | "contacts" | "pool" | "transfers" | "admin";
 export interface ShellUser { username: string; roles: string[] }
 export interface ConnectionState {
   status: "connected" | "connecting" | "disconnected" | "error";
@@ -24,8 +25,9 @@ export interface AppShellProps {
 }
 export const workspaceModules: Array<{ key: NavigationKey; label: string; icon: IconName }> = [
   { key: "groups", label: "消息", icon: "chat" },
-  { key: "contacts", label: "联系人", icon: "groups" },
+  { key: "documents", label: "文档", icon: "documents" },
   { key: "pool", label: "文件", icon: "folder" },
+  { key: "contacts", label: "联系人", icon: "groups" },
   { key: "transfers", label: "传输", icon: "transfers" },
   { key: "admin", label: "管理", icon: "admin" },
 ];
@@ -67,7 +69,7 @@ export function AppShell({ children, user, selected, onNavigate, connection, act
   return <div className={`ln-desktop ${selected==="groups"||selected==="contacts"?"is-messaging":""}`}>
     <a href={`#${id}-workspace`} className="ln-skip-link" onClick={(event) => { event.preventDefault(); workspace.current?.focus(); }}>跳至工作区</a>
     <aside className="ln-sidebar" aria-label="工作区侧栏">
-      <div className="ln-sidebar-brand"><span className="ln-brand-mark"><Icon name="nest" size={23} /></span><div><strong>LinkNestX</strong><span>企业协作</span></div></div>
+      <div className="ln-sidebar-brand" aria-label="LinkNestX"><span className="ln-brand-mark"><Icon name="nest" size={25} /></span></div>
       <nav aria-label="主导航" className="ln-navigation">
         {availableNavigation.map((item) => <button type="button" key={item.key} className="ln-nav-button" aria-label={item.label} aria-current={selected === item.key ? "page" : undefined} onClick={() => onNavigate(item.key)}><Icon name={item.icon} /><span>{item.label}</span>{item.key==="transfers"&&transfers>0&&<b className="im-nav-badge">{transfers}</b>}</button>)}
       </nav>
@@ -84,7 +86,7 @@ export function AppShell({ children, user, selected, onNavigate, connection, act
       </div>
     </aside>
     <div className="ln-workspace">
-      <header className="ln-workspace-header"><h1>{currentTitle}</h1>{headerActions && <div className="ln-header-actions">{headerActions}</div>}</header>
+      <header className="ln-workspace-header"><div className="ln-workspace-brand"><strong>LinkNest<span>X</span></strong><span className="ln-header-divider"/><h1>{currentTitle}</h1><span className="ln-workspace-label">一起，把工作变轻。</span></div><div className="ln-header-actions">{headerActions}<ThemeControl/>{onSettings&&<button className="ln-header-settings" aria-label="工作区设置" onClick={onSettings}><Icon name="settings" size={20}/></button>}</div></header>
       <main className="ln-workspace-content" id={`${id}-workspace`} ref={workspace} tabIndex={-1} aria-label={currentTitle}>{children}</main>
       <footer className="ln-statusbar"><span className={`ln-connection ln-connection-${connection.status}`} role="status"><Icon name={connection.status === "connected" ? "connected" : "disconnected"} size={16} />{connection.label ?? connectionLabels[connection.status]}</span><button type="button" className="ln-transfer-status" onClick={() => onNavigate("transfers")}><Icon name="transfers" size={15} />{transferLabel ?? (transfers > 0 ? `${transfers} 项传输进行中` : "暂无传输任务")}</button></footer>
     </div>

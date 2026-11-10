@@ -85,8 +85,8 @@ func (s *FileService) CompleteUpload(ctx context.Context, actorID, uploadID stri
 		return FileVersion{}, ErrIncomplete
 	}
 	var size int64
-	var expected, name, groupID string
-	if err = s.db.QueryRowContext(ctx, `SELECT v.size,v.sha256,v.name,f.group_id FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=?`, u.VersionID).Scan(&size, &expected, &name, &groupID); err != nil {
+	var expected, name, groupID, documentID string
+	if err = s.db.QueryRowContext(ctx, `SELECT v.size,v.sha256,v.name,COALESCE(f.group_id,''),COALESCE(f.document_id,'') FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=?`, u.VersionID).Scan(&size, &expected, &name, &groupID, &documentID); err != nil {
 		return FileVersion{}, err
 	}
 	chunks, err := loadChunks(ctx, s.db, u.VersionID)
@@ -125,7 +125,7 @@ func (s *FileService) CompleteUpload(ctx context.Context, actorID, uploadID stri
 	if hex.EncodeToString(whole.Sum(nil)) != expected {
 		return FileVersion{}, ErrChunkHashMismatch
 	}
-	_, err = s.chat.AppendAttachment(ctx, actorID, chat.AttachmentInput{GroupID: groupID, ClientMessageID: "upload:" + uploadID, FileID: u.FileID, FileVersionID: u.VersionID, Name: name}, func(tx *sql.Tx) error {
+	publish := func(tx *sql.Tx) error {
 		current, e := s.upload(ctx, tx, actorID, uploadID)
 		if e != nil {
 			return e
@@ -142,7 +142,7 @@ func (s *FileService) CompleteUpload(ctx context.Context, actorID, uploadID stri
 		}
 		at := s.now().UTC()
 		var expiry any = stamp(at.Add(30 * 24 * time.Hour))
-		if f.visibility == "pool" {
+		if f.visibility == "pool" || f.documentID != "" {
 			expiry = nil
 		}
 		if _, e = tx.ExecContext(ctx, `UPDATE file_versions SET status='published',published_at=?,expires_at=? WHERE id=? AND status='pending'`, stamp(at), expiry, u.VersionID); e != nil {
@@ -155,7 +155,22 @@ func (s *FileService) CompleteUpload(ctx context.Context, actorID, uploadID stri
 			return e
 		}
 		return recordAudit(ctx, tx, actorID, "file.published", u.FileID, u.VersionID, at)
-	})
+	}
+	if documentID != "" {
+		if err = s.auth.ValidateActor(ctx, actorID); err != nil {
+			return FileVersion{}, err
+		}
+		tx, e := s.db.BeginTx(ctx, nil)
+		if e != nil {
+			return FileVersion{}, e
+		}
+		defer tx.Rollback()
+		if err = publish(tx); err == nil {
+			err = s.commitChange(tx)
+		}
+	} else {
+		_, err = s.chat.AppendAttachment(ctx, actorID, chat.AttachmentInput{GroupID: groupID, ClientMessageID: "upload:" + uploadID, FileID: u.FileID, FileVersionID: u.VersionID, Name: name}, publish)
+	}
 	if err != nil {
 		return FileVersion{}, err
 	}

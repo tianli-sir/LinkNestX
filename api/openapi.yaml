@@ -301,7 +301,8 @@ paths:
       operationId: listFiles
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: groupId, in: query, description: Supply groupId or scope=pool, schema: { type: string, format: uuid } }
+        - { name: groupId, in: query, description: 'Supply exactly one of groupId, documentId, or scope=pool', schema: { type: string, format: uuid } }
+        - { name: documentId, in: query, schema: { type: string, format: uuid } }
         - { name: scope, in: query, schema: { type: string, enum: [pool] } }
       responses:
         '200':
@@ -358,7 +359,7 @@ paths:
         - { name: X-Transfer-ID, in: header, description: Native task UUID for aggregate server delivery records; native clients always provide it, schema: { type: string, maxLength: 128 } }
       responses:
         '200':
-          description: Entire chunk stream with exact Content-Length; permissions and lifecycle rechecked for every request
+          description: Entire chunk stream with exact Content-Length; session and permissions rechecked before every bounded write. Revocation stops an in-progress stream and partial responses do not count as completed delivery.
           headers:
             Content-Length: { schema: { type: integer, minimum: 1 } }
           content:
@@ -728,7 +729,7 @@ paths:
     get:
       operationId: adminAudit
       security: [{ bearerAuth: [] }]
-      description: Current administrators only. Events and aggregates ordered by UTC createdAt then id descending. Offset pagination is stable for an unchanged result set.
+      description: Current administrators only. Document events and attachment records require current document read access; filtering occurs before counting or pagination. Events and aggregates ordered by UTC createdAt then id descending. Offset pagination is stable for an unchanged result set.
       parameters:
         - { $ref: '#/components/parameters/AuditAction' }
         - { $ref: '#/components/parameters/AuditActor' }
@@ -754,7 +755,7 @@ paths:
         Complete filtered export, independent of UI pagination. Fixed UTC cutoff
         and timestamp/id keyset, in batches of 200; database resources are released
         before response writes. Aggregate rows updated after cutoff are excluded.
-        Permissions are rechecked between batches. On error after output begins,
+        Administrator permissions and document read access are rechecked between batches. On error after output begins,
         the HTTP stream is aborted (HTTP/1 connection closure or HTTP/2 reset).
         Consumers must treat transport errors as failure and publish saved files
         only after a complete successful body. CSV protects spreadsheet formulas;
@@ -1218,6 +1219,117 @@ paths:
         '401': { description: Session missing, expired or revoked }
         '403': { description: Permission, origin, CSRF or browser capability denied }
         '404': { description: Resource unavailable }
+  /api/v1/documents:
+    get:
+      operationId: listDocuments
+      summary: List readable published notes, personal notes, drafts, or curated notes
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [feed, mine, drafts, public], default: feed } }
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: Readable documents ordered by updated time; body truncated to 2000 characters with bodyTruncated flag and empty attachments; fetch an individual document for full content. Cursor is bound to scope and search.
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/DocumentPage' } }
+        '400': { description: Invalid pagination or search input }
+        '401': { description: Authentication required }
+    post:
+      operationId: createDocument
+      summary: Create a persistent Markdown note or private draft
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+      description: Browser writes require same-origin Origin and X-CSRF-Token. Body accepts up to 1 MiB of UTF-8 Markdown; raw HTML is rendered inert by clients.
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/DocumentInput' } }
+      responses:
+        '201':
+          description: Created document
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Document' } }
+        '400': { description: Invalid document input }
+  /api/v1/documents/{documentID}:
+    parameters:
+      - { name: documentID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getDocument
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+      responses:
+        '200':
+          description: Full document and all published attachment versions; drafts are owner-only even for administrators
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Document' } }
+        '404': { description: Missing, deleted, or not readable }
+    patch:
+      operationId: updateDocument
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+      description: Full replacement with current revision. Curated documents are administrator-only and must remain published with team visibility. Browser administrator writes to curated documents are prohibited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/DocumentInput' }
+                - { required: [revision] }
+      responses:
+        '200':
+          description: Updated document with incremented revision
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Document' } }
+        '403': { description: Write permission denied }
+        '409': { description: Revision conflict; reload before saving }
+    delete:
+      operationId: deleteDocument
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+      parameters:
+        - { name: revision, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        '204': { description: Document and all owned attachments made unavailable }
+        '403': { description: Write permission denied }
+        '409': { description: Revision conflict }
+  /api/v1/documents/{documentID}/curation:
+    parameters:
+      - { name: documentID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: curateDocument
+      summary: Add or remove a published team document from the administrator-curated library
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [revision, curated]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                curated: { type: boolean }
+      responses:
+        '200':
+          description: Updated document; curation locks author edits and attachment deletion/replacement
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Document' } }
+        '403': { description: Native administrator session required }
+        '409': { description: Revision conflict }
+  /api/v1/documents/{documentID}/attachments/{versionID}/preview:
+    parameters:
+      - { name: documentID, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: versionID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: previewDocumentImage
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+      description: Authenticated PNG/JPEG/GIF/WebP image bytes, maximum 10 MiB. No SVG or HTML. Document ACL is rechecked between bounded reads. Markdown attachment links use linknestx-file:VERSION_UUID; other files use the existing authenticated download routes.
+      responses:
+        '200': { description: Image bytes with nosniff and no-store headers }
+        '403': { description: Attachment access denied }
+        '404': { description: Version does not belong to the document or is unavailable }
+        '413': { description: Image is too large for preview }
+        '415': { description: Unsupported image content }
 components:
   requestBodies:
     EmptyObject:
@@ -1395,9 +1507,13 @@ components:
     StartUpload:
       type: object
       additionalProperties: false
-      required: [groupId, name, size, sha256, chunks]
+      required: [name, size, sha256, chunks]
+      oneOf:
+        - { required: [groupId], not: { required: [documentId] } }
+        - { required: [documentId], not: { required: [groupId] } }
       properties:
         groupId: { type: string, format: uuid }
+        documentId: { type: string, format: uuid }
         fileId: { type: string, format: uuid }
         name: { type: string, minLength: 1, maxLength: 255, description: Display metadata; path separators and control characters forbidden }
         size: { type: integer, minimum: 0, maximum: 20000000000 }
@@ -1418,10 +1534,11 @@ components:
       required: [id, groupId, name, createdBy, visibility, currentVersionId, createdAt, expiresAt, status, size, sha256]
       properties:
         id: { type: string, format: uuid }
-        groupId: { type: string, format: uuid }
+        groupId: { type: string, description: Group UUID; empty for document files }
+        documentId: { type: string, format: uuid }
         name: { type: string }
         createdBy: { type: string, format: uuid }
-        visibility: { type: string, enum: [group, pool] }
+        visibility: { type: string, enum: [group, pool, document] }
         currentVersionId: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: [string, 'null'], format: date-time }
@@ -1434,6 +1551,7 @@ components:
       required: [fileId, versionId, name, size, sha256, chunkSize, chunks, expiresAt, visibility, createdAt, createdBy, status]
       properties:
         fileId: { type: string, format: uuid }
+        documentId: { type: string, format: uuid }
         versionId: { type: string, format: uuid }
         name: { type: string }
         size: { type: integer }
@@ -1441,7 +1559,7 @@ components:
         chunkSize: { type: integer }
         chunks: { type: array, items: { $ref: '#/components/schemas/FileChunk' } }
         expiresAt: { type: [string, 'null'], format: date-time }
-        visibility: { type: string, enum: [group, pool] }
+        visibility: { type: string, enum: [group, pool, document] }
         createdAt: { type: string, format: date-time }
         createdBy: { type: string, format: uuid }
         status: { type: string, enum: [published] }
@@ -1662,3 +1780,57 @@ components:
             nativeTransfers: { type: boolean, const: false }
             updates: { type: boolean, const: false }
             maxDownloadBytes: { type: integer, const: 1000000000 }
+
+    DocumentInput:
+      type: object
+      additionalProperties: false
+      required: [title, body, visibility, status]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, description: 'Required Markdown source, maximum 1048576 UTF-8 bytes. Explicit empty string is valid; omitted or null body is rejected.' }
+        visibility: { type: string, enum: [private, friends, team] }
+        status: { type: string, enum: [draft, published] }
+        revision: { type: integer, minimum: 1 }
+    Document:
+      type: object
+      required: [id, title, body, bodyTruncated, visibility, status, curated, revision, author, createdAt, updatedAt, canEdit, canDelete, canCurate, attachments]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        bodyTruncated: { type: boolean }
+        visibility: { type: string, enum: [private, friends, team] }
+        status: { type: string, enum: [draft, published] }
+        curated: { type: boolean }
+        revision: { type: integer, minimum: 1 }
+        author:
+          type: object
+          required: [id, username, displayName, accountNumber]
+          properties:
+            id: { type: string, format: uuid }
+            username: { type: string }
+            displayName: { type: string }
+            accountNumber: { type: string }
+            avatarUrl: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        publishedAt: { type: string, format: date-time }
+        canEdit: { type: boolean }
+        canDelete: { type: boolean }
+        canCurate: { type: boolean }
+        attachments: { type: array, items: { $ref: '#/components/schemas/DocumentAttachment' } }
+    DocumentPage:
+      type: object
+      required: [documents, nextCursor, hasMore]
+      properties:
+        documents: { type: array, items: { $ref: '#/components/schemas/Document' } }
+        nextCursor: { type: string }
+        hasMore: { type: boolean }
+
+    DocumentAttachment:
+      allOf:
+        - { $ref: '#/components/schemas/File' }
+        - type: object
+          required: [versionId]
+          properties:
+            versionId: { type: string, format: uuid, description: Immutable attachment version for link resolution; currentVersionId remains the latest logical file version }

@@ -4,6 +4,11 @@ export type Invoke = <T>(command: string, args?: InvokeArgs) => Promise<T>;
 
 declare global {
   interface Window {
+    __LINKNESTX_DESKTOP__?: {
+      kind: "legacy";
+      invoke: Invoke;
+      listen(event: string, callback: (payload: unknown) => void): Promise<() => void>;
+    };
     __TAURI__?: {
       core?: {
         invoke?: Invoke;
@@ -17,7 +22,7 @@ declare global {
  * fail clearly so feature code never reaches into Tauri globals directly.
  */
 export const invoke: Invoke = async <T>(command: string, args?: InvokeArgs) => {
-  const tauriInvoke = window.__TAURI__?.core?.invoke;
+  const tauriInvoke = window.__LINKNESTX_DESKTOP__?.invoke ?? window.__TAURI__?.core?.invoke;
   if (!tauriInvoke) {
     throw new Error(`Tauri command unavailable: ${command}`);
   }
@@ -25,3 +30,4 @@ export const invoke: Invoke = async <T>(command: string, args?: InvokeArgs) => {
 };
 
 export const isTauri = (): boolean => Boolean(window.__TAURI__?.core?.invoke);
+export const isDesktop = (): boolean => Boolean(window.__LINKNESTX_DESKTOP__?.invoke) || isTauri();

@@ -38,13 +38,14 @@ type Chunk struct {
 	Size  int64  `json:"size"`
 }
 type StartUploadInput struct {
-	GroupID   string  `json:"groupId"`
-	Name      string  `json:"name"`
-	Size      int64   `json:"size"`
-	SHA256    string  `json:"sha256"`
-	ChunkSize int64   `json:"chunkSize"`
-	Chunks    []Chunk `json:"chunks"`
-	FileID    string  `json:"fileId,omitempty"`
+	GroupID    string  `json:"groupId,omitempty"`
+	DocumentID string  `json:"documentId,omitempty"`
+	Name       string  `json:"name"`
+	Size       int64   `json:"size"`
+	SHA256     string  `json:"sha256"`
+	ChunkSize  int64   `json:"chunkSize"`
+	Chunks     []Chunk `json:"chunks"`
+	FileID     string  `json:"fileId,omitempty"`
 }
 type UploadSession struct {
 	UploadID       string `json:"uploadId"`
@@ -57,6 +58,7 @@ type File struct {
 	Listed           bool       `json:"listed"`
 	ID               string     `json:"id"`
 	GroupID          string     `json:"groupId"`
+	DocumentID       string     `json:"documentId,omitempty"`
 	Name             string     `json:"name"`
 	CreatedBy        string     `json:"createdBy"`
 	Visibility       string     `json:"visibility"`
@@ -68,6 +70,7 @@ type File struct {
 	SHA256           string     `json:"sha256"`
 }
 type FileVersion struct {
+	DocumentID    string        `json:"documentId,omitempty"`
 	SharingPolicy SharingPolicy `json:"sharingPolicy"`
 	FileID        string        `json:"fileId"`
 	VersionID     string        `json:"versionId"`
@@ -83,8 +86,9 @@ type FileVersion struct {
 	Status        string        `json:"status"`
 }
 type ListInput struct {
-	GroupID string
-	Scope   string
+	DocumentID string
+	GroupID    string
+	Scope      string
 }
 type FileService struct {
 	db         *sql.DB
@@ -112,7 +116,7 @@ func (s *FileService) SetClock(now func() time.Time) {
 func stamp(t time.Time) string { return t.UTC().Format(timestampLayout) }
 func validateInput(in *StartUploadInput) error {
 	in.Name = strings.TrimSpace(in.Name)
-	if in.GroupID == "" || in.Name == "" || !utf8.ValidString(in.Name) || utf8.RuneCountInString(in.Name) > 255 || strings.ContainsAny(in.Name, "/\\") {
+	if (in.GroupID == "") == (in.DocumentID == "") || in.Name == "" || !utf8.ValidString(in.Name) || utf8.RuneCountInString(in.Name) > 255 || strings.ContainsAny(in.Name, "/\\") {
 		return ErrInvalidInput
 	}
 	for _, r := range in.Name {
@@ -162,29 +166,45 @@ func (s *FileService) StartUpload(ctx context.Context, actorID string, in StartU
 	if err = activeActor(ctx, tx, actorID); err != nil {
 		return UploadSession{}, err
 	}
-	if err = groups.RequireSend(ctx, tx, actorID, in.GroupID); err != nil {
-		return UploadSession{}, err
-	}
-	if err = fileGroupAccess(ctx, tx, actorID, in.GroupID); err != nil {
-		return UploadSession{}, err
+	if in.DocumentID != "" {
+		if err = documentAccess(ctx, tx, actorID, in.DocumentID, true); err != nil {
+			return UploadSession{}, err
+		}
+	} else {
+		if err = groups.RequireSend(ctx, tx, actorID, in.GroupID); err != nil {
+			return UploadSession{}, err
+		}
+		if err = fileGroupAccess(ctx, tx, actorID, in.GroupID); err != nil {
+			return UploadSession{}, err
+		}
 	}
 	at := s.now().UTC()
 	fileID := in.FileID
 	if fileID == "" {
 		fileID = uuid.NewString()
-		_, err = tx.ExecContext(ctx, `INSERT INTO files(id,group_id,name,created_by,created_at) VALUES(?,?,?,?,?)`, fileID, in.GroupID, in.Name, actorID, stamp(at))
+		var group, document any
+		visibility := "group"
+		if in.DocumentID != "" {
+			document = in.DocumentID
+			visibility = "document"
+		} else {
+			group = in.GroupID
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO files(id,group_id,document_id,name,created_by,created_at,visibility) VALUES(?,?,?,?,?,?,?)`, fileID, group, document, in.Name, actorID, stamp(at), visibility)
 		if err != nil {
 			return UploadSession{}, err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO file_memberships(file_id,group_id) VALUES(?,?)`, fileID, in.GroupID); err != nil {
-			return UploadSession{}, err
+		if in.GroupID != "" {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO file_memberships(file_id,group_id) VALUES(?,?)`, fileID, in.GroupID); err != nil {
+				return UploadSession{}, err
+			}
 		}
 	} else {
 		f, e := loadFile(ctx, tx, fileID)
 		if e != nil {
 			return UploadSession{}, e
 		}
-		if f.groupID != in.GroupID {
+		if f.groupID != in.GroupID || f.documentID != in.DocumentID {
 			return UploadSession{}, ErrForbidden
 		}
 		if e = manage(ctx, tx, actorID, f); e != nil {
@@ -268,8 +288,10 @@ func (s *FileService) upload(ctx context.Context, tx *sql.Tx, actorID, uploadID 
 		u.Completed = true
 		return u, nil
 	}
-	if err = groups.RequireSend(ctx, tx, actorID, f.groupID); err != nil {
-		return u, err
+	if f.documentID == "" {
+		if err = groups.RequireSend(ctx, tx, actorID, f.groupID); err != nil {
+			return u, err
+		}
 	}
 	if expiry <= stamp(s.now()) {
 		return u, ErrUnavailable

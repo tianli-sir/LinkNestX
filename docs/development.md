@@ -2,6 +2,10 @@
 
 [简体中文 README](../README.md) · [English README](../README.en.md)
 
+服务端和离线签名工具支持 Linux，macOS 用于本地开发；Windows 仅构建客户端。Win7 兼容构建见 [Windows 兼容性](windows-compatibility.md)。
+
+The server and offline signing tool target Linux, with macOS for local development. Windows builds target the desktop client; see [Win7 compatibility](windows-compatibility.md).
+
 本指南补充双语 README 中的快速开始，记录构建、验证和打包方式。以下命令在仓库根目录的 Bash 终端运行；Windows 使用 Git Bash。
 
 This guide expands on the bilingual README with build, test, and packaging details. Run commands from the repository root in Bash; use Git Bash on Windows.
@@ -139,7 +143,7 @@ Packaging builds the frontend first, then builds the native app with the Cargo l
 
 `--unsigned` disables signing on Windows and uses an ad-hoc bundle seal on macOS. It does **not** provide Developer ID signing or notarization. See the [deployment guide](deployment.md) for release signing, offline WebView2, and persistent service setup.
 
-当前 0.2 的 Windows 构建和实机验收仍待完成；提供构建命令不代表产物已经通过验收。Windows 0.2 packaging and device acceptance remain pending; documented commands do not imply a verified release artifact exists.
+构建结果以对应提交的 Actions 为准；Windows/macOS 实机验收仍需分别完成。Read Actions for the corresponding commit for build status; each platform still needs device acceptance.
 
 ### 更新发布 / Publishing updates
 
@@ -149,9 +153,9 @@ The first upgrade from 0.1 to 0.2 is manual. Subsequent releases must advance bo
 
 ## 持续集成 / Continuous integration
 
-[`Checks`](../.github/workflows/checks.yml) 在 Windows/macOS 上配置 Go、前端与原生测试、真实服务烟测及原生构建。[`Unsigned desktop packages`](../.github/workflows/desktop-packages.yml) 只在手动触发时打包，保留测试产物 14 天，不创建 GitHub Release，也不部署服务。
+[`Checks`](../.github/workflows/checks.yml) 在 Linux/macOS 上运行服务端测试，在 macOS 上执行真实服务烟测，在 Windows/macOS 上运行前端与原生客户端测试及构建。[`Unsigned desktop packages`](../.github/workflows/desktop-packages.yml) 只在手动触发时打包，保留测试产物 14 天，不创建 GitHub Release，也不部署服务。
 
-`Checks` configures Go, frontend, native, and real-server smoke tests plus native builds on Windows/macOS. `Unsigned desktop packages` is manually triggered, retains test artifacts for 14 days, and neither publishes a GitHub Release nor deploys a server. Workflow configuration is not evidence of a successful remote run.
+`Checks` runs server tests on Linux/macOS, real-server smoke tests on macOS, and frontend/native client tests and builds on Windows/macOS. `Unsigned desktop packages` is manually triggered, retains test artifacts for 14 days, and neither publishes a GitHub Release nor deploys a server. Workflow configuration is not evidence of a successful remote run.
 
 <a id="contributing"></a>
 ## 贡献方式 / Contributing

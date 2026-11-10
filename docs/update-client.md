@@ -1,7 +1,9 @@
-# Desktop update operation (0.2)
+# Desktop update operation
 
 The first 0.2.0 installation is manual. The delivered 0.1 clients have no update
 engine. Version 0.2.0 embeds the public Ed25519 trust key and build sequence 1;
+version 0.3.0 keeps that trust key and advances to build sequence 2. The separate
+Win7 compatibility client currently uses full-package manual updates. For standard clients,
 future releases must increment **both** application SemVer precedence and
 `BUILD_SEQUENCE` in `client/src-tauri/src/update/manifest.rs`. A version's build
 metadata (`+...`) alone is not a newer version. Keep Cargo, Tauri and npm versions

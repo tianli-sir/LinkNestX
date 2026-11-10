@@ -21,8 +21,8 @@ const eligibility = ` FROM peer_sources p
  AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday(?))
  AND COALESCE((SELECT sp.enabled FROM sharing_policies sp WHERE sp.scope=CASE WHEN f.visibility='pool' THEN 'pool' ELSE 'group' END AND sp.target_id=CASE WHEN f.visibility='pool' THEN f.id ELSE f.group_id END),1)=1
  AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d JOIN group_members gm ON gm.group_id=d.group_id AND gm.user_id=p.user_id WHERE d.group_id=f.group_id AND p.user_id IN(d.pair_low,d.pair_high)))
- AND ((f.visibility='pool' AND f.listed=1) OR (f.visibility<>'pool' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=p.user_id))
- OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=p.user_id AND r.name='admin'))`
+ AND ((f.document_id IS NULL AND ((f.visibility='pool' AND f.listed=1) OR (f.visibility<>'pool' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=p.user_id))
+ OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=p.user_id AND r.name='admin'))) OR (f.document_id IS NOT NULL AND EXISTS(SELECT 1 FROM documents doc WHERE doc.id=f.document_id AND doc.deleted_at IS NULL AND (doc.author_id=p.user_id OR (doc.status='published' AND (doc.visibility='team' OR (doc.visibility='friends' AND EXISTS(SELECT 1 FROM friendships fr WHERE fr.pair_low=min(doc.author_id,p.user_id) AND fr.pair_high=max(doc.author_id,p.user_id)))))))))`
 
 func (s *Service) Announce(ctx context.Context, actor string, in AnnounceInput) error {
 	if len(in.Indexes) > 5000 || !validID(in.VersionID) {

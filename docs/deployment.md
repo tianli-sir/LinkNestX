@@ -30,7 +30,7 @@
 
 ## 数据目录与运行账户
 
-使用专用非管理员操作系统账户运行服务。该账户需要读写数据库目录、SQLite 的 WAL/SHM 文件和整个分块存储目录；其他普通账户不应有读取权限。Unix 上建议目录权限 `0700`、文件权限 `0600` 并设置 `umask 077`；Windows 上用 NTFS ACL 仅授予服务账户和负责备份的管理员。不要把数据目录放进反向代理的静态站点根目录。
+使用专用非管理员操作系统账户运行服务。该账户需要读写数据库目录、SQLite 的 WAL/SHM 文件和整个分块存储目录；其他普通账户不应有读取权限。服务端与离线签名工具支持 Linux，macOS 可用于本地开发；它们依赖 Unix 文件权限检查，暂不支持 Windows 服务端。目录使用 `0700`、文件使用 `0600` 并设置 `umask 077`。Windows 员工使用桌面客户端连接 Linux 服务端。不要把数据目录放进反向代理的静态站点根目录。
 
 备份必须同时覆盖数据库和分块存储，并保持一致的时间点；可以停服务备份，或采用 SQLite 在线备份并配套保留对应文件。先验证可恢复性，再调整清理或迁移流程。客户端也有本地任务数据库、会话数据和文件缓存，位于 Tauri 的应用数据目录；不要将其放进共享目录或同步给其他员工。
 
@@ -116,13 +116,13 @@ server {
 
 ## 平台构建与签名
 
-运行 `npm ci` 使用已提交的锁文件；Tauri CLI 是本地依赖，无需全局安装。发布构建先执行 `npm run build`，再使用 `cargo --locked`，禁止以修改锁文件的方式隐式升级依赖。版本号目前在前端包、Tauri 配置和 Cargo manifest 中均为 `0.2.0`；正式升级需同步版本及对应锁文件，并递增 `client/src-tauri/src/update/manifest.rs` 中的 `BUILD_SEQUENCE`。
+运行 `npm ci` 使用已提交的锁文件；Tauri CLI 是本地依赖，无需全局安装。发布构建先执行 `npm run build`，再使用 `cargo --locked`，禁止以修改锁文件的方式隐式升级依赖。版本号目前在前端包、Tauri 配置和 Cargo manifest 中均为 `0.3.0`；正式升级需同步版本及对应锁文件，并递增 `client/src-tauri/src/update/manifest.rs` 中的 `BUILD_SEQUENCE`。
 
 打包前，将 `client/src-tauri/src/deployment.rs` 的 `SERVER_ORIGIN` 设置为自己的服务地址，例如 `https://files.example.com`。该地址是构建期绑定，员工不能在登录界面修改；只改变服务端环境变量不会改变已有客户端的连接地址。独立部署还应在第一次构建前建立自己的更新签名密钥，并将对应公钥写入 `client/update-public-key.json`，详见[更新格式](update-format.md)。已有安装必须继续信任同一发布密钥；不要用重新生成公钥的方式替换已分发客户端的信任关系。
 
 `scripts/package-client.sh --unsigned` 在 Windows 传入 `--no-sign`；macOS 使用不需要证书的本机 ad-hoc 签名封装完整 `.app`，以便更新器验证资源完整性，没有 Developer ID 签名或公证。macOS 默认 `.app`/`.dmg`，Windows 默认 NSIS `.exe`，需要 MSI 时传 `--bundles nsis,msi`。目标架构默认采用当前主机；跨架构构建必须先安装目标工具链，例如 macOS 通用包需要两个 Apple 架构的 Rust target，再传 `--target universal-apple-darwin`。脚本可从任意工作目录调用，失败状态直接返回给调用者，不删除旧产物。
 
-Windows 安装包配置采用当前用户安装及简体中文/英文界面，WebView2 采用在线 bootstrapper；离线环境需由管理员预装 WebView2 或使用经验证的离线分发配置。macOS 配置最低版本为 11.0；这个配置值不是旧版本系统测试结果。
+Windows 安装包配置采用当前用户安装及简体中文/英文界面，现代 Windows 安装包内置 WebView2 离线安装程序；缺少运行时的电脑在安装期间自动补齐，无需员工额外下载。构建安装包时需要获取该运行时，包体会相应增大。该包面向 Windows 10/11；Windows 7 使用独立兼容版，不能通过补装最新 WebView2 运行现代版。macOS 配置最低版本为 11.0；这个配置值不是旧版本系统测试结果。
 
 macOS 正式签名需先将合法的 Developer ID 证书和私钥安装到构建账户钥匙串，通过 `APPLE_SIGNING_IDENTITY` 指定身份，然后运行：
 
@@ -150,7 +150,7 @@ Windows 签名需在构建账户证书存储中安装合法证书及可访问的
 
 ## 持续集成与验收范围
 
-`Checks` 固定 Go 1.27.2、Node.js 24.14.0、Rust 1.99.1，在 `macos-14` 和 `windows-2025` 运行 Go/前端/原生测试，执行前端生产构建和原生无安装包构建。所有安装使用 `npm ci`，Cargo 使用 `--locked`，Go 使用 `-mod=readonly`。
+`Checks` 固定 Go 1.27.2、Node.js 24.14.0、Rust 1.99.1，在 Linux 运行服务端测试、竞态检查和静态分析；在 `macos-14` 运行服务端及真实服务联调；在 `macos-14` 和 `windows-2025` 运行前端/原生客户端测试，执行前端生产构建和原生无安装包构建。所有安装使用 `npm ci`，Cargo 使用 `--locked`，Go 使用 `-mod=readonly`。
 
 `Unsigned desktop packages` 只在手动触发时构建 macOS ARM64 与 Windows x64 未签名安装包，产物保留 14 天。它不使用签名秘密、不创建 GitHub Release、不自动部署。Actions 尚需在仓库远程实际运行，不能从本地配置检查推断它已通过。
 

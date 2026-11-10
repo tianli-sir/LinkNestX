@@ -4,11 +4,11 @@
 
 ### 让消息与文件，自然流动。
 
-自托管的团队聊天与文件协作平台。把群聊、已读、大文件传输与团队文件池，放进同一个工作区。
+自托管的团队聊天与文件协作平台。把聊天、Markdown 笔记、大文件传输与团队知识，放进同一个工作区。
 
 **简体中文** · [English](README.en.md)
 
-![Version](https://img.shields.io/badge/version-0.2.0%20preview-0f766e?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.0%20preview-0f766e?style=flat-square)
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8D8?style=flat-square&logo=tauri&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white)
@@ -22,23 +22,36 @@
 
 LinkNestX 面向希望自行管理协作数据的团队：消息和文件记录存储在自己的服务器上，桌面客户端负责大文件与后台任务，浏览器提供随手可用的轻量聊天入口。文件下载可同时使用服务器和其他获授权客户端的数据，已经校验的分块无需等整个文件下载完就能参与传输。
 
-> **当前状态：0.2 开发预览。** 核心功能已通过本地测试与真实服务联调。macOS ARM64 已完成本地构建；Windows 0.2 打包和实机验收仍待完成。当前版本适合评估与参与开发，完整平台和部署验收进度见[验证范围](#verification)。
+> **当前状态：0.3 开发预览。** 全新工作区、浅色/深色/跟随系统主题与文档知识库已实现。Windows 7 SP1 使用自带运行环境的独立 32/64 位兼容包；现代 Windows 与 macOS 使用标准版。构建及实机验证范围见[下文](#verification)。
 
 <a id="preview"></a>
 ## 界面预览
 
 <p align="center">
-  <img src="docs/verification/v2/fixture-chat-desktop.png" alt="LinkNestX 聊天工作区：会话列表、文件下载进度与群聊已读人数" width="1280">
+  <img src="docs/assets/chat-desktop.png" alt="LinkNestX 聊天工作区：会话列表、文件下载进度与群聊已读人数" width="1280">
 </p>
 
 <p align="center"><sub>真实界面组件，使用演示数据；展示聊天、消息内文件进度和已读回执。</sub></p>
 
 <details>
+<summary>查看深色主题与文档知识库</summary>
+
+![Dark workspace](docs/assets/chat-dark.png)
+
+![Document library](docs/assets/documents.png)
+
+![Markdown reader](docs/assets/document-dark.png)
+
+文档支持 Markdown、独立可见范围与管理员公共区。
+
+</details>
+
+<details>
 <summary>查看传输中心与联系人</summary>
 
-![传输中心：任务进度、当前速率与预计剩余时间](docs/verification/v2/fixture-transfers.png)
+![传输中心：任务进度、当前速率与预计剩余时间](docs/assets/transfers.png)
 
-![联系人：数字账号、好友申请与私聊](docs/verification/v2/fixture-contacts.png)
+![联系人：数字账号、好友申请与私聊](docs/assets/contacts.png)
 
 以上截图均使用演示数据，不代表真实用户、传输速度或生产环境。
 
@@ -47,7 +60,7 @@ LinkNestX 面向希望自行管理协作数据的团队：消息和文件记录�
 <details>
 <summary>查看官网设计</summary>
 
-![LinkNestX homepage](docs/verification/website/landing-hero.png)
+![LinkNestX homepage](docs/assets/website/landing-hero.png)
 
 </details>
 
@@ -60,6 +73,8 @@ LinkNestX 面向希望自行管理协作数据的团队：消息和文件记录�
 | **文件就在对话中** | 桌面端拖入文件、粘贴文件或截图后发送；文件卡片直接显示进度、速率和预计剩余时间。 |
 | **多源并行下载** | 从服务器与获授权的客户端并行取得已校验分块，支持部分文件转发、断点恢复与服务器回退。 |
 | **大文件持续传输** | 桌面单文件上限 20 GB；关闭窗口后继续在托盘运行，传输中心集中管理任务、用时和平均速率。 |
+| **文档与团队知识** | 用 Markdown 记录教程和经验；支持草稿、仅自己/好友/全员可见与永久附件。管理员收录后由管理员维护。 |
+| **统一工作区与主题** | 全新消息、联系人、文档、文件与传输布局；浅色、深色和跟随系统。 |
 | **团队公共文件池** | 管理员可将已发送文件纳入公共池，供所有已登录员工查找下载并长期保留。 |
 | **数据由自己管理** | Go 服务端保存聊天、文件与审计记录，管理员管理员工账号、成员权限和设备会话。 |
 | **轻量 Web 入口** | 同一服务提供浏览器登录、聊天、好友与文件下载，无需安装即可处理轻量协作。 |
@@ -75,7 +90,11 @@ LinkNestX 面向希望自行管理协作数据的团队：消息和文件记录�
 | 文件上传、拖放与粘贴 | ✓ | — |
 | 多源传输、暂停与恢复 | ✓ | — |
 | 关闭窗口后继续任务 | 系统托盘运行时支持 | — |
-| 传输统计与应用内更新 | ✓ | — |
+| 传输统计 | ✓ | — |
+| 应用内增量更新 | 标准版支持；Win7 兼容版使用完整包更新 | — |
+| Markdown 文档、草稿与可见范围 | ✓ | ✓（文字编辑） |
+| 文档附件上传与 P2P | ✓ | — |
+| 浅色、深色、跟随系统 | ✓ | ✓ |
 | 管理员写操作 | ✓ | — |
 
 网页版限制由服务端执行。下载交给浏览器管理；完整文件协作使用桌面端。上表描述功能设计与实现范围，平台实机状态见下文。
@@ -86,6 +105,7 @@ LinkNestX 面向希望自行管理协作数据的团队：消息和文件记录�
 - 账号由管理员创建，不开放自助注册。员工拥有唯一数字账号，好友申请通过后开启私聊。
 - 只有前台实际看到的消息才标记已读。群聊按当前有权访问消息的成员统计，不包含发送者。
 - 普通文件自上传完成起保留 **30 天**，到期由系统删除；公共池文件**不过期**，由管理员管理和删除。
+- 文档和文档附件**长期保留**，不随普通聊天文件到期；公共文档仅已登录员工可访问，收录后原作者不可编辑或删除正文及附件。
 - 聊天与审计记录保留**两个日历年**，清理边界按 UTC 日期计算。
 - 公共池面向已登录员工，不是匿名分享；群文件仍需对应群成员权限。
 - 20 GB / 1 GB 分别为 20,000,000,000 / 1,000,000,000 字节。
@@ -118,7 +138,7 @@ flowchart LR
 
 ### 2. 启动本机服务与网页版
 
-在仓库根目录的 **Bash 终端**执行（Windows 使用 Git Bash）：
+在仓库根目录的 **Linux 或 macOS Bash 终端**执行：
 
 ```bash
 npm --prefix client ci
@@ -162,6 +182,7 @@ npm --prefix client run desktop:dev
 | --- | --- |
 | [开发指南](docs/development.md) | 环境、开发、测试、桌面打包与贡献方式 |
 | [部署说明](docs/deployment.md) | 持久化、服务配置、HTTPS、STUN/TURN 与平台签名 |
+| [Windows 兼容性](docs/windows-compatibility.md) | 标准版与 Win7 SP1 32/64 位兼容包、安装及更新方式 |
 | [HTTP API](api/openapi.yaml) | 服务端接口定义 |
 | [传输协议](docs/transfer-contract.md) | 文件清单、分块与传输约定 |
 | [更新格式](docs/update-format.md) | 离线签名、内容对象与发布流程 |
@@ -170,11 +191,11 @@ npm --prefix client run desktop:dev
 <a id="verification"></a>
 ## 版本与验证范围
 
-0.2 已完成本地 Go 测试、竞态检查和静态分析，前端 **152 项**测试与生产构建、原生 **131 项**常规测试，以及真实 Go 服务下的聊天、已读、浏览器下载和多源传输联调。真实传输使用 48 MiB 文件，两个客户端与服务器共同提供数据；另有签名更新包重构与完整性验证。
+服务端、前端和原生传输核心具有自动化回归测试。文档验证包含迁移保留、可见范围、好友撤权、管理员收录锁定、历史附件版本与真实服务上传下载。界面截图使用演示数据。请结合对应提交的 [Actions 运行结果](https://github.com/tianli-sir/LinkNestX/actions) 判断构建状态。
 
 以下事项仍需要目标环境验收：
 
-- **Windows 0.2** 打包、安装及实机运行；已有旧版产物不代表新版可用。
+- **Windows 7 SP1 的 x86/x64 实机验收**。兼容包采用独立 Electron 22 运行环境和共享原生 P2P 核心；该运行环境已结束维护，编译成功不代表 Win7 实机验证。标准版需要 Windows 10/11。
 - macOS 安装包当前为本地 ad-hoc 签名，**没有 Developer ID 签名或公证**；系统拖放、剪贴板与完整已安装客户端升级尚需交互式验证。
 - 真实跨 NAT / TURN 网络、实际 20 GB 完整传输，以及生产部署。20 GB 清单与 Web 1 GB 大小门槛测试不等于实际传输了对应大小。
 - GitHub Actions 工作流已配置；实际状态应以远程运行结果为准。
@@ -188,10 +209,12 @@ npm --prefix client run desktop:dev
 - [x] 公共文件池、权限检查、保留期与审计记录
 - [x] 多源分块传输、断点恢复与传输统计
 - [x] 受限网页版与签名增量更新实现
-- [ ] Windows 0.2 打包与 Windows/macOS 完整实机验收
+- [x] 全新工作区、浅色/深色/系统主题
+- [x] Markdown 笔记、附件与管理员公共知识区
+- [ ] Windows/macOS 完整实机验收
 - [ ] 公网与跨 NAT 场景验证
 - [ ] 群公告
-- [ ] 企业知识库
+- [ ] 知识库全文索引与更多协作能力
 - [ ] 可配置双因素认证
 
 ## 项目结构
@@ -200,7 +223,8 @@ npm --prefix client run desktop:dev
 LinkNestX/
 ├── server/           # Go API、认证、聊天、文件、SQLite 与更新发布
 ├── client/           # React + TypeScript 界面
-│   └── src-tauri/    # Rust 原生传输、WebRTC、系统集成与更新器
+│   ├── src-tauri/    # Rust 原生传输、WebRTC、系统集成与更新器
+│   └── legacy/       # Win7 独立运行环境与共享原生服务
 ├── api/              # OpenAPI 定义
 ├── scripts/          # 本地开发、检查与打包入口
 └── docs/             # 架构、部署、协议与验证说明

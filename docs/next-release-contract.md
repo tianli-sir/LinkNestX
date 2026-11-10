@@ -1,6 +1,6 @@
-# LinkNestX 0.2 shared API contract
+# LinkNestX collaboration API contract
 
-Frozen server contract for Tasks 1–4, 2026-11-10. All routes are same-origin `/api/v1`. JSON errors use `{error:string}`. Protected requests use desktop Bearer or browser cookie; never both.
+This document describes the shared desktop and browser API introduced in version 0.2. All routes are same-origin `/api/v1`. JSON errors use `{error:string}`. Protected requests use desktop Bearer or browser cookie; never both.
 
 ## Identity and contacts
 
@@ -28,6 +28,22 @@ All browser writes require exact same-origin Origin and `X-CSRF-Token`; refresh/
 
 `GET /web/files/{versionID}/download` streams an authenticated file with Content-Disposition and known length, requiring size <= 1,000,000,000. One active stream per browser session; a concurrent stream returns 409, oversize returns 413. No Range support (Range rejected 416). HEAD checks metadata without claiming transfer. ACL/session checked repeatedly while streaming; cancellation releases stream slot. Browser saves are managed by the browser, and server completion does not assert a local save.
 
-## Reserved release integration
+## Web assets and client releases
 
-Task4 owns `/downloads`, `/api/v1/releases`, `/releases/...`, `/updates/{platform}/{arch}/latest.json`, and public root content. Task1 exposes `config.Config.WebAssetsDir` (environment `LINKNESTX_WEB_ASSETS_DIR`) and SPA `/app/` serving. Unknown `/api/...` always returns 404. Static directory contains built frontend only; missing assets return 404 and non-asset application paths fall back to index.html.
+Public release routes are `/downloads`, `/api/v1/releases`, `/releases/...` and `/updates/{platform}/{arch}/latest.json`; the root serves the product homepage. `config.Config.WebAssetsDir` (environment `LINKNESTX_WEB_ASSETS_DIR`) configures SPA `/app/` serving. Unknown `/api/...` always returns 404. The static directory contains the built frontend only; missing assets return 404 and non-asset application paths fall back to index.html. Release assets are generated with the [offline publication tool](update-format.md) and served from `LINKNESTX_RELEASE_DIR`.
+
+## Markdown documents
+
+`GET /documents?scope=feed|mine|drafts|public&q=&cursor=&limit=20` returns `{documents:Document[],nextCursor,hasMore}`. Default `feed` lists readable published documents; `mine` includes the caller's published notes and drafts; `drafts` lists their drafts; `public` lists administrator-curated notes for authenticated employees. Search matches title and body, up to 200 characters. Limit is 1–50. Cursors bind the scope and search and order by update time and ID descending.
+
+Lists include at most the first 2000 characters of the body, a `bodyTruncated` flag, and an empty attachments list. Open the individual document before reading or editing it.
+
+`Document = {id,title,body,visibility:'private'|'friends'|'team',status:'draft'|'published',curated,revision,bodyTruncated,author:{id,username,displayName,accountNumber,avatarUrl?},createdAt,updatedAt,publishedAt?,canEdit,canDelete,canCurate,attachments:File[]}`. `GET /documents/{id}` returns the full document, with all published attachment versions. Each attachment has a `versionId` identifying that immutable version and a `currentVersionId` identifying the logical file's latest version. Resolve links and list keys by `versionId` so a replacement does not break older Markdown links. `POST /documents {title,body,visibility,status}` creates one; `PATCH /documents/{id}` accepts the same full fields plus the expected `revision`. Titles contain 1–200 characters after trimming; Markdown is at most 1 MiB UTF-8. `DELETE /documents/{id}?revision=N` deletes it and its attachments. A stale revision returns 409. Drafts and private notes remain owner-only, including against administrator reads; friends-only access follows the current friendship relation. Notes and their published attachments do not expire automatically.
+
+`POST /documents/{id}/curation {revision,curated}` requires a native administrator session. Only published team-visible documents can enter the public library. Curation locks changes and deletion of the document and its attachments to administrators, including upload replacement and existing file routes. Removing curation restores the author's management rights. Curated documents must remain published and team-visible. Browser sessions can create and edit their own text notes but cannot perform administrator curation or modifications to curated notes.
+
+Native uploads pass exactly one of `groupId` or `documentId` to `/files/uploads`. Document attachments have `visibility:'document'`, `groupId:''`, `documentId` and `expiresAt:null`; they publish without a chat message. `GET /files?documentId=ID` lists accessible published attachments. They cannot be independently promoted to the older file pool. File metadata, versions, download, chunk grants and peer sources all enforce the document's current read/write permissions. Losing friendship immediately revokes new access to friends-only documents and their bytes.
+
+Markdown links to uploaded attachments use `[name](linknestx-file:VERSION_UUID)`; images use `![description](linknestx-file:VERSION_UUID)`. Renderers resolve these only within the owning document. External HTTP(S) links remain ordinary links and are not P2P downloads. `GET /documents/{id}/attachments/{versionID}/preview` serves authenticated PNG/JPEG/GIF/WebP only, at most 10 MiB; it rejects HTML/SVG, sets `nosniff` and `no-store`, and rechecks authorization while streaming. Other browser downloads use the existing `/web/files/{versionID}/download` route and retain its 1 GB/one-active-stream restriction. Browser uploads and native P2P routes remain unavailable.
+
+Document and attachment changes emit the existing content-free `files.changed` invalidation. Consumers reload authorized document/file views after these events and after local writes; private document identifiers are not broadcast globally.

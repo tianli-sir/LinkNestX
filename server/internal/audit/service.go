@@ -54,11 +54,13 @@ type Page struct {
 	Total  int64   `json:"total"`
 }
 
-const eventUnion = `WITH events AS (
+const eventUnion = `WITH raw_events AS (
  SELECT id,COALESCE(actor_id,'') actor_id,action,target_id,device_id,COALESCE(file_id,'') file_id,COALESCE(version_id,'') version_id,COALESCE(task_id,'') task_id,COALESCE(node_id,'') node_id,bytes,source,created_at FROM audit_events
  UNION ALL SELECT 'server:'||actor_id||':'||device_id||':'||version_id||':'||task_id||':'||node_id||':'||action,actor_id,action,'',device_id,COALESCE((SELECT file_id FROM file_versions WHERE id=version_id),''),version_id,task_id,node_id,bytes,'server-observed',updated_at FROM transfer_records
  UNION ALL SELECT 'client:'||id,actor_id,action,'',device_id,file_id,version_id,task_id,node_id,bytes,'client-reported',updated_at FROM client_transfer_records
  UNION ALL SELECT 'connection:'||connection_id,requester_user_id,'peer.connection.'||outcome,'',requester_device_id,COALESCE((SELECT file_id FROM file_versions WHERE id=version_id),''),version_id,connection_id,source_device_id,0,'server-observed',COALESCE(ended_at,started_at) FROM peer_transfers
+), events AS (
+ SELECT raw_events.*, CASE WHEN action GLOB 'document.*' THEN target_id ELSE COALESCE((SELECT document_id FROM files WHERE files.id=raw_events.file_id),'') END document_id FROM raw_events
 ) `
 const eventColumns = `id,actor_id,action,target_id,device_id,file_id,version_id,task_id,node_id,bytes,source,created_at`
 
@@ -83,9 +85,13 @@ func validateFilter(f Filter) (Filter, error) {
 	}
 	return f, nil
 }
-func filterSQL(f Filter) (string, []any) {
-	query := " WHERE 1=1"
-	args := []any{}
+func filterSQL(ctx context.Context, f Filter) (string, []any) {
+	actor, _ := auth.UserFromContext(ctx)
+	// Audit attribution must not disclose documents that the administrator
+	// cannot read. Apply the same rule to attachment/transfer rows and before
+	// counting or paginating, so totals and exports do not leak hidden records.
+	query := ` WHERE (document_id='' OR EXISTS(SELECT 1 FROM documents d WHERE d.id=events.document_id AND d.deleted_at IS NULL AND (d.author_id=? OR (d.status='published' AND (d.visibility='team' OR (d.visibility='friends' AND EXISTS(SELECT 1 FROM friendships fr WHERE fr.pair_low=min(d.author_id,?) AND fr.pair_high=max(d.author_id,?))))))))`
+	args := []any{actor.ID, actor.ID, actor.ID}
 	for _, item := range []struct{ col, value string }{{"actor_id", f.ActorID}, {"device_id", f.DeviceID}, {"file_id", f.FileID}, {"version_id", f.VersionID}, {"action", f.Action}} {
 		if item.value != "" {
 			query += " AND " + item.col + "=?"
@@ -134,7 +140,7 @@ func (s *Service) adminSnapshot(ctx context.Context) (*sql.Tx, error) {
 	return tx, nil
 }
 func readEvents(ctx context.Context, tx *sql.Tx, f Filter) ([]Event, error) {
-	where, args := filterSQL(f)
+	where, args := filterSQL(ctx, f)
 	args = append(args, f.Limit, f.Offset)
 	rows, err := tx.QueryContext(ctx, eventUnion+`SELECT `+eventColumns+` FROM events`+where+` ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
@@ -167,7 +173,7 @@ func (s *Service) Page(ctx context.Context, f Filter) (Page, error) {
 		return Page{}, err
 	}
 	defer tx.Rollback()
-	where, args := filterSQL(f)
+	where, args := filterSQL(ctx, f)
 	var page Page
 	if err := tx.QueryRowContext(ctx, eventUnion+`SELECT count(*) FROM events`+where, args...).Scan(&page.Total); err != nil {
 		return Page{}, err
@@ -324,7 +330,7 @@ func (s *Service) RecordClientTransfer(ctx context.Context, in TransferInput) er
 	}
 	var file string
 	var size int64
-	err = tx.QueryRowContext(ctx, `SELECT f.id,v.size FROM file_versions v JOIN files f ON f.id=v.file_id JOIN users u ON u.id=? JOIN sessions s ON s.user_id=u.id WHERE v.id=? AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday('now') AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d JOIN group_members gm ON gm.group_id=d.group_id AND gm.user_id=u.id WHERE d.group_id=f.group_id AND u.id IN(d.pair_low,d.pair_high))) AND ((f.visibility='pool' AND f.listed=1) OR (f.visibility<>'pool' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=u.id)) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND r.name='admin'))`, actor.ID, in.VersionID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&file, &size)
+	err = tx.QueryRowContext(ctx, `SELECT f.id,v.size FROM file_versions v JOIN files f ON f.id=v.file_id JOIN users u ON u.id=? JOIN sessions s ON s.user_id=u.id WHERE v.id=? AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday('now') AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d JOIN group_members gm ON gm.group_id=d.group_id AND gm.user_id=u.id WHERE d.group_id=f.group_id AND u.id IN(d.pair_low,d.pair_high))) AND ((f.document_id IS NULL AND ((f.visibility='pool' AND f.listed=1) OR (f.visibility<>'pool' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=u.id)) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND r.name='admin'))) OR (f.document_id IS NOT NULL AND EXISTS(SELECT 1 FROM documents doc WHERE doc.id=f.document_id AND doc.deleted_at IS NULL AND (doc.author_id=u.id OR (doc.status='published' AND (doc.visibility='team' OR (doc.visibility='friends' AND EXISTS(SELECT 1 FROM friendships fr WHERE fr.pair_low=min(doc.author_id,u.id) AND fr.pair_high=max(doc.author_id,u.id)))))))))`, actor.ID, in.VersionID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&file, &size)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrTransferForbidden
 	}

@@ -936,3 +936,155 @@ async fn run_smoke() {
         node.service.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires actual Go binary and local TCP/UDP; run scripts/smoke-test.sh"]
+async fn actual_go_native_document_attachments() {
+    use linknestx::transfer::models::UploadTarget;
+    let server = Server::start().await;
+    let clients = tempfile::tempdir().unwrap();
+    let admin = Node::initialized(
+        clients.path().join("admin"),
+        &server.origin,
+        "smoke-admin",
+        &server.password,
+    )
+    .await;
+    let password = Uuid::new_v4().to_string();
+    for name in ["writer", "reader"] {
+        admin
+            .auth
+            .json(
+                "POST",
+                "/api/v1/users",
+                Some(json!({"username":name,"password":password,"roles":["user"]})),
+            )
+            .await
+            .unwrap();
+    }
+    let writer = Node::initialized(
+        clients.path().join("writer"),
+        &server.origin,
+        "writer",
+        &password,
+    )
+    .await;
+    let reader = Node::initialized(
+        clients.path().join("reader"),
+        &server.origin,
+        "reader",
+        &password,
+    )
+    .await;
+    let doc = writer.auth.json("POST", "/api/v1/documents", Some(json!({"title":"Native attachment guide","body":"# Draft","visibility":"team","status":"draft"}))).await.unwrap();
+    let id = doc["id"].as_str().unwrap();
+    let path = format!("/api/v1/documents/{id}");
+    assert_eq!(
+        reader
+            .auth
+            .json("GET", &path, None)
+            .await
+            .unwrap_err()
+            .status,
+        Some(404)
+    );
+    let bytes: Vec<u8> = (0..1_048_777)
+        .map(|i| ((i * 31 + i / 97) % 251) as u8)
+        .collect();
+    let source = clients.path().join("guide.zip");
+    std::fs::write(&source, &bytes).unwrap();
+    let upload = writer
+        .service
+        .start_upload_to(
+            UploadTarget::Document(id.into()),
+            source.to_string_lossy().into(),
+            None,
+            Some("document-attachment".into()),
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+    let task = completed(&writer.service, &upload, "document-upload").await;
+    assert_eq!(task.document_id.as_deref(), Some(id));
+    assert!(task.group_id.is_none());
+    let manifest = fetch_manifest(&writer.auth, &task.version_id).await;
+    assert_eq!(manifest.visibility, "document");
+    assert!(manifest.expires_at.is_none());
+    assert_eq!(manifest.sha256, hash(&bytes));
+    let private_path = format!("/api/v1/file-versions/{}/manifest", task.version_id);
+    assert_eq!(
+        reader
+            .auth
+            .json("GET", &private_path, None)
+            .await
+            .unwrap_err()
+            .status,
+        Some(403)
+    );
+    let current = writer.auth.json("GET", &path, None).await.unwrap();
+    let published = writer.auth.json("PATCH", &path, Some(json!({"revision":current["revision"],"title":"Native attachment guide","body":format!("[Download](linknestx-file:{})",task.version_id),"visibility":"team","status":"published"}))).await.unwrap();
+    let visible = reader.auth.json("GET", &path, None).await.unwrap();
+    assert_eq!(visible["attachments"][0]["versionId"], task.version_id);
+    let destination = clients.path().join("reader-download.zip");
+    let download = reader
+        .service
+        .start_download(
+            task.version_id.clone(),
+            destination.to_string_lossy().into(),
+        )
+        .await
+        .unwrap();
+    completed(&reader.service, &download, "document-download").await;
+    assert_eq!(std::fs::read(&destination).unwrap(), bytes);
+    let curated = admin
+        .auth
+        .json(
+            "POST",
+            &format!("{path}/curation"),
+            Some(json!({"revision":published["revision"],"curated":true})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        writer
+            .auth
+            .json(
+                "DELETE",
+                &format!("{path}?revision={}", curated["revision"]),
+                None
+            )
+            .await
+            .unwrap_err()
+            .status,
+        Some(403)
+    );
+    assert_eq!(
+        writer
+            .auth
+            .json(
+                "DELETE",
+                &format!("/api/v1/files/{}", manifest.file_id),
+                None
+            )
+            .await
+            .unwrap_err()
+            .status,
+        Some(403)
+    );
+    admin
+        .auth
+        .json(
+            "DELETE",
+            &format!("{path}?revision={}", curated["revision"]),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(reader.auth.json("GET", &private_path, None).await.is_err());
+    reader.service.reconcile_lifecycle().await.unwrap();
+    assert_eq!(std::fs::read(&destination).unwrap(), bytes);
+    for node in [&writer, &reader, &admin] {
+        node.service.shutdown().await.unwrap();
+    }
+}

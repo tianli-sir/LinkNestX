@@ -14,6 +14,7 @@ import (
 	"github.com/linknestx/linknestx/server/internal/config"
 	"github.com/linknestx/linknestx/server/internal/files"
 	"github.com/linknestx/linknestx/server/internal/groups"
+	"github.com/linknestx/linknestx/server/internal/notes"
 	"github.com/linknestx/linknestx/server/internal/releases"
 	"github.com/linknestx/linknestx/server/internal/social"
 )
@@ -79,6 +80,9 @@ func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.Gro
 	if len(fileServices) > 0 && fileServices[0] != nil {
 		fileServices[0].SetChangeObserver(hub.FilesChanged)
 		NewFileHandlers(fileServices[0]).Register(mux, a)
+		documents := notes.New(a.Database(), a)
+		documents.SetChangeObserver(hub.FilesChanged)
+		(&DocumentHandlers{Service: documents, Files: fileServices[0]}).Register(mux, a)
 		mux.Handle("GET /api/v1/web/files/{versionID}/download", RequireAuth(a, &WebDownloads{Service: fileServices[0]}))
 	}
 	return withTrustedWebScheme(cfg.TrustedProxyCIDRs, mux)

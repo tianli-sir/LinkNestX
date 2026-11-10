@@ -1,14 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiErrorMessage, ApiError, createNativeTransport, RestClient, type NativeTransport } from '../api/rest';
 import { createBrowserTransport } from '../api/browser';
-import { isTauri } from '../lib/tauri';
+import { isDesktop } from '../lib/tauri';
 import type { LoginInput, Session, User } from './types';
 export interface PreferenceStorage {getItem(key:string):string|null;setItem(key:string,value:string):void}
 export interface AuthContextValue {session:Session|null;serverUrl:string;client:RestClient;login(input:LoginInput):Promise<void>;logout():Promise<void>;changePassword(currentPassword:string,newPassword:string):Promise<void>;updateUser(user:User):void}
 const AuthContext=createContext<AuthContextValue|null>(null);
 export interface AuthProviderProps {children:ReactNode;transport?:NativeTransport;storage?:PreferenceStorage}
 export function AuthProvider({children,transport}:AuthProviderProps){
- const runtime=useMemo(()=>transport??(isTauri()?createNativeTransport():createBrowserTransport()),[transport]);
+ const runtime=useMemo(()=>transport??(isDesktop()?createNativeTransport():createBrowserTransport()),[transport]);
  const client=useMemo(()=>new RestClient(runtime),[runtime]);const [session,setSession]=useState<Session|null>(null);const operation=useRef(0);
  useEffect(()=>{if(!runtime.restore)return;const generation=++operation.current;void runtime.restore().then(value=>{if(generation===operation.current)setSession(value)}).catch(()=>{});return()=>{operation.current++}},[runtime]);
  useEffect(()=>{if(!session||!runtime.refresh)return;const delay=Math.max(1000,Math.min(2147483647,new Date(session.expiresAt).valueOf()-Date.now()-60000));const generation=operation.current;const timer=setTimeout(()=>{void runtime.refresh!().then(value=>{if(generation===operation.current)setSession(value)}).catch(()=>{if(generation===operation.current)setSession(null)})},Number.isFinite(delay)?delay:60000);return()=>clearTimeout(timer)},[session,runtime]);

@@ -1,0 +1,88 @@
+name: Windows 7 compatibility packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Windows 7 SP1 (${{ matrix.arch }})
+    runs-on: windows-2025
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            target: i686-win7-windows-msvc
+          - arch: x64
+            target: x86_64-win7-windows-msvc
+    env:
+      # These Tier 3 targets need a locally built standard library. Do not
+      # replace them with pc-windows-msvc, whose standard library needs Win10.
+      LEGACY_RUST: nightly-2025-10-01
+      RUSTFLAGS: -C target-feature=+crt-static -C link-arg=/SUBSYSTEM:CONSOLE,6.01
+      CFLAGS: /D_WIN32_WINNT=0x0601
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/legacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.14.0'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install pinned compatibility toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install $env:LEGACY_RUST --profile minimal --component rust-src
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +$env:LEGACY_RUST --version
+          rustc +$env:LEGACY_RUST --version --verbose
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: legacy-${{ matrix.target }}-nightly-2025-10-01
+          workspaces: client/legacy/native -> ../../../target/legacy
+      - name: Shared frontend and shell tests
+        shell: pwsh
+        run: |
+          npm --prefix client ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix client run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test client/legacy/tests/*.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Win7 native P2P service and run tests
+        shell: pwsh
+        env:
+          LEGACY_TARGET: ${{ matrix.target }}
+        run: |
+          cargo +$env:LEGACY_RUST test --locked --manifest-path client/legacy/native/Cargo.toml -Z build-std --target $env:LEGACY_TARGET --lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +$env:LEGACY_RUST build --release --locked --manifest-path client/legacy/native/Cargo.toml -Z build-std=std,panic_abort --target $env:LEGACY_TARGET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:LINKNESTX_LEGACY_TEST_BINARY = Join-Path $env:CARGO_TARGET_DIR "$env:LEGACY_TARGET/release/linknestx-legacy-native.exe"
+          node --test client/legacy/tests/native-process.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build offline installers with bundled Electron
+        shell: pwsh
+        env:
+          LEGACY_TARGET: ${{ matrix.target }}
+          LEGACY_ARCH: ${{ matrix.arch }}
+        run: |
+          $makensis = 'C:/Program Files (x86)/NSIS/makensis.exe'
+          if (-not (Test-Path $makensis)) {
+            choco install nsis --version=3.11 -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          ./scripts/package-legacy-windows.ps1 -Architecture $env:LEGACY_ARCH -NativeExecutable "$env:CARGO_TARGET_DIR/$env:LEGACY_TARGET/release/linknestx-legacy-native.exe" -Makensis $makensis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linknestx-windows7-${{ matrix.arch }}-unsigned
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/legacy-windows/*.exe
+            dist/legacy-windows/*.zip
+            dist/legacy-windows/*SHA256SUMS.txt

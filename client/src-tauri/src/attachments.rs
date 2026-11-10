@@ -506,15 +506,21 @@ pub(crate) enum ClipboardContent {
     Image(Vec<u8>),
     Empty,
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "legacy-host")))]
 #[path = "attachments/macos.rs"]
 mod platform;
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(feature = "legacy-host")))]
 #[path = "attachments/windows.rs"]
 mod platform;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(all(
+    any(target_os = "macos", target_os = "windows"),
+    not(feature = "legacy-host")
+))]
 pub(crate) use platform::read_clipboard;
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(any(
+    feature = "legacy-host",
+    not(any(target_os = "macos", target_os = "windows"))
+))]
 pub(crate) fn read_clipboard() -> Result<ClipboardContent> {
     Err(TransferError::new("当前平台不支持粘贴附件，请选择文件"))
 }
