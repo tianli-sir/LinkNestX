@@ -137,6 +137,18 @@ try {
   await page.getByRole('button', { name: '阅读 团队入门教程', exact: true }).waitFor();
   assert.equal((await api('GET', '/documents?scope=public', undefined, reader)).documents.length, 1);
   pass('administrator curation reflected live and author edit/delete controls removed');
+  const friendRequest = await api('POST', '/friend-requests', { accountNumber: reader.user.accountNumber }, writer, 201);
+  await api('POST', `/friend-requests/${friendRequest.id}/accept`, {}, reader);
+  const friendsNote = await api('POST', '/documents', { title: '仅好友的协作记录', body: '好友可读的记录内容', visibility: 'friends', status: 'published' }, reader, 201);
+  await page.getByRole('button', { name: '知识动态', exact: true }).click();
+  await page.getByRole('button', { name: '阅读 仅好友的协作记录', exact: true }).click();
+  await page.getByRole('heading', { name: '仅好友的协作记录', exact: true }).waitFor();
+  await api('DELETE', `/contacts/${writer.user.id}`, undefined, reader, 204);
+  await until(async () => await page.getByRole('heading', { name: '仅好友的协作记录', exact: true }).count() === 0, 'revoked friends document removed');
+  await api('GET', `/documents/${friendsNote.id}`, undefined, writer, 404);
+  await page.getByRole('button', { name: '返回文档', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '阅读 仅好友的协作记录', exact: true }).count(), 0);
+  pass('friend removal invalidates open document and cached feed through live server events');
   const anonymous = await fetch(`${origin}/api/v1/documents/${doc.id}`);
   assert.equal(anonymous.status, 401);
   const anonymousAttachment = await fetch(`${origin}/api/v1/web/files/${doc.attachments[0].versionId}/download`);

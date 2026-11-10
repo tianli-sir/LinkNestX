@@ -150,7 +150,7 @@ Windows 签名需在构建账户证书存储中安装合法证书及可访问的
 
 ## 持续集成与验收范围
 
-`Checks` 固定 Go 1.27.2、Node.js 24.14.0、Rust 1.99.1，在 Linux 运行服务端测试、竞态检查和静态分析；在 `macos-14` 运行服务端及真实服务联调；在 `macos-14` 和 `windows-2025` 运行前端/原生客户端测试，执行前端生产构建和原生无安装包构建。所有安装使用 `npm ci`，Cargo 使用 `--locked`，Go 使用 `-mod=readonly`。
+`Checks` 固定 Go 1.27.2、Node.js 24.14.0、Rust 1.99.1，在 Linux 运行服务端测试、竞态检查和静态分析；在 `macos-15` 运行服务端及真实服务联调；在 `macos-15` 和 `windows-2025` 运行前端/原生客户端测试，执行前端生产构建和原生无安装包构建。所有安装使用 `npm ci`，Cargo 使用 `--locked`，Go 使用 `-mod=readonly`。
 
 `Unsigned desktop packages` 只在手动触发时构建 macOS ARM64 与 Windows x64 未签名安装包，产物保留 14 天。它不使用签名秘密、不创建 GitHub Release、不自动部署。Actions 尚需在仓库远程实际运行，不能从本地配置检查推断它已通过。
 

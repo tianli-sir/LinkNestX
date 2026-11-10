@@ -27,7 +27,7 @@ const browserOrigin = `http://linknestx.test:${port}`;
 const initialPassword = randomBytes(24).toString('base64url');
 const password = randomBytes(24).toString('base64url');
 const processErrors = [];
-const server = spawn(path.join(root, '.cache/v2-integration-server'), [], {
+const server = spawn(process.env.LINKNESTX_TEST_SERVER ?? path.join(root, '.cache/v2-integration-server'), [], {
   cwd: scratch,
   env: { ...process.env,
     LINKNESTX_BIND_ADDRESS: `127.0.0.1:${port}`,
@@ -108,8 +108,7 @@ try {
   await api('POST', `/uploads/${upload.uploadId}/complete`, {}, bob);
   pass('real API bootstrap, password change, profiles, group and file publication');
 
-  const cachedBrowser = path.join(root, '.cache/playwright/chromium_headless_shell-1254/chrome-headless-shell-mac-arm64/chrome-headless-shell');
-  browser = await chromium.launch({ headless: true, executablePath: process.env.LINKNESTX_TEST_BROWSER ?? cachedBrowser, args: ['--host-resolver-rules=MAP linknestx.test 127.0.0.1', '--no-proxy-server'] });
+  browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}), args: ['--host-resolver-rules=MAP linknestx.test 127.0.0.1', '--no-proxy-server'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, acceptDownloads: true });
   const page = await context.newPage();
   page.on('pageerror', e => evidence.browserErrors.push(e.message));
