@@ -45,9 +45,24 @@ jobs:
         working-directory: client
         run: npm ci
       - name: Frontend and native tests
+        id: native-tests
         run: |
           npm --prefix client test
+          npm --prefix client run build
           cargo test --locked --manifest-path client/src-tauri/Cargo.toml
+      - name: Diagnose Windows native loader failure
+        if: failure() && runner.os == 'Windows' && steps.native-tests.outcome == 'failure'
+        shell: pwsh
+        run: ./scripts/diagnose-windows-loader.ps1
+      - name: Retain Windows loader diagnostics
+        if: failure() && runner.os == 'Windows' && steps.native-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-loader-diagnostics-packages
+          path: .cache/windows-loader-diagnostics*.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
       - name: Build unsigned installers
         env:
           PACKAGE_BUNDLES: ${{ matrix.bundles }}

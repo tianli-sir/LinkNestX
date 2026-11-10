@@ -180,6 +180,7 @@ Set the real deployment address and rebuild before distributing a client. Platfo
 
 | Document | Contents |
 | --- | --- |
+| [Employee guide](docs/user-guide.md) | Login, chat, documents, themes and updates (Chinese) |
 | [Development guide](docs/development.md) | Environment, development, tests, packaging, and contribution workflow |
 | [Deployment guide](docs/deployment.md) | Persistence, service configuration, HTTPS, STUN/TURN, and platform signing |
 | [Windows compatibility](docs/windows-compatibility.md) | Standard and Win7 SP1 x86/x64 packages, installation and updates |

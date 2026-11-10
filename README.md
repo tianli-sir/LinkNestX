@@ -180,6 +180,7 @@ npm --prefix client run desktop:dev
 
 | 文档 | 内容 |
 | --- | --- |
+| [员工使用说明](docs/user-guide.md) | 登录、聊天、文档、主题与软件更新 |
 | [开发指南](docs/development.md) | 环境、开发、测试、桌面打包与贡献方式 |
 | [部署说明](docs/deployment.md) | 持久化、服务配置、HTTPS、STUN/TURN 与平台签名 |
 | [Windows 兼容性](docs/windows-compatibility.md) | 标准版与 Win7 SP1 32/64 位兼容包、安装及更新方式 |
