@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-transfer-preferences"
+description = "Enables the get_transfer_preferences command without any pre-configured scope."
+commands.allow = ["get_transfer_preferences"]
+
+[[permission]]
+identifier = "deny-get-transfer-preferences"
+description = "Denies the get_transfer_preferences command without any pre-configured scope."
+commands.deny = ["get_transfer_preferences"]

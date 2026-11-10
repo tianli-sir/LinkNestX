@@ -1,14 +1,25 @@
 import { useState, type FormEvent } from "react";
 import { apiErrorMessage, type RestClient } from "../api/rest";
-import type { User } from "../auth";
+import { useAuth, type User } from "../auth";
+import { GroupsView } from "./GroupsView";
 import { AuditView } from "./AuditView";
+import { DevicesView } from "./DevicesView";
 import { ErrorNotice, Field, Loading, segment, useResource } from "./shared";
 export function AdminView({ client }: {
   client: RestClient;
 }) {
+  const { session } = useAuth();
+  if (!session?.user.roles.includes("admin")) return <ErrorNotice error="需要管理员权限"/>;
+  return <AdminContent client={client}/>;
+}
+function AdminContent({ client }: {
+  client: RestClient;
+}) {
   const [tab, setTab] = useState("users");
+  const {session}=useAuth();
+  const [groupsRevision,setGroupsRevision]=useState(0);
   const users = useResource("admin-users", () => client.request<User[]>("GET", "/api/v1/admin/users"));
-  return <section className="ln-feature"><div className="ln-tabs ln-admin-tabs" aria-label="管理内容">{[["users", "账号管理"], ["groups", "创建群组"], ["audit", "审计记录"]].map(([key, label]) => <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div>{tab !== "audit" && <><ErrorNotice error={users.error} retry={users.refresh}/>{users.loading && <Loading />}</>}{tab === "users" && <UsersPanel client={client} users={users.data ?? []} refresh={users.refresh}/>} {tab === "groups" && <GroupForm client={client} users={users.data ?? []}/>} {tab === "audit" && <AuditView client={client}/>}</section>;
+  return <section className="ln-feature"><div className="ln-tabs ln-admin-tabs" aria-label="管理内容">{[["users", "账号管理"], ["devices", "设备管理"], ["groups", "群组管理"], ["audit", "审计记录"]].map(([key, label]) => <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>{label}</button>)}</div>{tab !== "audit" && <><ErrorNotice error={users.error} retry={users.refresh}/>{users.loading && <Loading />}</>}{tab === "users" && <UsersPanel client={client} users={users.data ?? []} refresh={users.refresh}/>} {tab === "devices" && <DevicesView client={client} scope="admin" users={users.data ?? []}/>} {tab === "groups" && <><GroupForm client={client} users={users.data ?? []} onCreated={()=>setGroupsRevision(v=>v+1)}/><GroupsView key={groupsRevision} client={client} user={session!.user}/></>} {tab === "audit" && <AuditView client={client}/>}</section>;
 }
 function UsersPanel({ client, users, refresh }: {
   client: RestClient;
@@ -78,7 +89,8 @@ function UsersPanel({ client, users, refresh }: {
   <form className="ln-inline-form" onSubmit={create}><h3>创建员工账号</h3><Field label="新用户名" id="new-username"><input id="new-username" required value={username} autoComplete="off" onChange={event => setUsername(event.target.value)}/></Field><Field label="邮箱（可选）" id="new-email"><input id="new-email" type="email" value={email} onChange={event => setEmail(event.target.value)}/></Field><Field label="初始密码" id="initial-password"><input id="initial-password" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)}/></Field><label className="ln-checkbox"><input type="checkbox" checked={admin} onChange={event => setAdmin(event.target.checked)}/>授予管理员权限</label><button className="ln-button ln-button-primary" disabled={busy || !username.trim() || !password}>创建账号</button></form>
  </>;
 }
-function GroupForm({ client, users }: {
+function GroupForm({ client, users, onCreated }: {
+  onCreated:()=>void;
   client: RestClient;
   users: User[];
 }) {
@@ -97,7 +109,8 @@ function GroupForm({ client, users }: {
     try {
       await client.request("POST", "/api/v1/groups", { name: name.trim(), ...(owner ? { ownerId: owner } : {}) });
       setName("");
-      setNotice("群组已创建，群主可在群组成员中添加同事。");
+      setNotice("群组已创建，可在下方管理成员和文件。");
+      onCreated();
     }
     catch (error) {
       setError(apiErrorMessage(error));

@@ -119,6 +119,7 @@ impl Harness {
         let events = Arc::new(NoopEvents);
         let transfers = TransferService::open(root.path(), auth.clone(), events.clone()).unwrap();
         let native = NativeState {
+            audit_exports: Arc::new(linknestx::audit_export::AuditExportManager::new().unwrap()),
             auth,
             transfers,
             events,
@@ -126,7 +127,9 @@ impl Harness {
             lifecycle: Mutex::new(()),
             exiting: AtomicBool::new(false),
             exit_ready: AtomicBool::new(false),
-            uploads: Mutex::new(HashSet::new()),
+            attachments: Mutex::new(
+                linknestx::attachments::Registry::new(root.path().join("attachments")).unwrap(),
+            ),
             destinations: Mutex::new(HashSet::new()),
         };
         Self {

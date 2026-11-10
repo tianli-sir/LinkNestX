@@ -113,6 +113,8 @@ pub struct Manifest {
     pub expires_at: Option<String>,
     #[serde(default)]
     pub visibility: String,
+    #[serde(default)]
+    pub sharing_policy: AdminSharingPolicy,
 }
 impl Manifest {
     pub fn validate(&self) -> Result<()> {
@@ -187,6 +189,14 @@ pub struct TaskSnapshot {
     pub bytes_completed: u64,
     pub total_bytes: u64,
     pub active_sources: Vec<String>,
+    #[serde(default)]
+    pub group_id: Option<String>,
+    #[serde(default)]
+    pub client_attachment_id: Option<String>,
+    #[serde(default)]
+    pub message_id: Option<String>,
+    #[serde(default)]
+    pub metrics: super::metrics::Snapshot,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -203,6 +213,10 @@ pub struct Task {
     pub upload_id: Option<String>,
     #[serde(default)]
     pub resume_on_login: bool,
+    #[serde(default)]
+    pub metrics_record: super::metrics::Record,
+    #[serde(default)]
+    pub owned_source: bool,
 }
 impl Task {
     pub fn new(owner: String, direction: Direction, version_id: String, path: String) -> Self {
@@ -211,6 +225,10 @@ impl Task {
             .and_then(|v| v.to_str())
             .unwrap_or("文件")
             .to_string();
+        let metrics = super::metrics::Snapshot {
+            history_complete: true,
+            ..Default::default()
+        };
         Self {
             snapshot: TaskSnapshot {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -221,6 +239,10 @@ impl Task {
                 bytes_completed: 0,
                 total_bytes: 0,
                 active_sources: Vec::new(),
+                group_id: None,
+                client_attachment_id: None,
+                message_id: None,
+                metrics: metrics.clone(),
                 error: None,
             },
             owner,
@@ -232,6 +254,8 @@ impl Task {
             file_id: None,
             upload_id: None,
             resume_on_login: false,
+            metrics_record: super::metrics::Record::fresh(metrics),
+            owned_source: false,
         }
     }
 }
@@ -257,7 +281,9 @@ impl Default for SharingPolicy {
 }
 impl SharingPolicy {
     pub fn validate(&self) -> Result<()> {
-        if self.max_concurrent == 0
+        if !self.enabled
+            || self.cache_quota_bytes < MAX_CHUNK_SIZE
+            || self.max_concurrent == 0
             || self.max_concurrent > 16
             || self.cache_quota_bytes > 100_000_000_000
         {
@@ -265,5 +291,39 @@ impl SharingPolicy {
         } else {
             Ok(())
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminSharingPolicy {
+    pub enabled: bool,
+    pub max_concurrent: usize,
+    pub bandwidth_limit_bps: u64,
+}
+impl Default for AdminSharingPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_concurrent: 0,
+            bandwidth_limit_bps: 0,
+        }
+    }
+}
+impl AdminSharingPolicy {
+    pub fn effective(&self, local: &SharingPolicy) -> SharingPolicy {
+        let mut p = local.clone();
+        p.enabled &= self.enabled;
+        if self.max_concurrent > 0 {
+            p.max_concurrent = p.max_concurrent.min(self.max_concurrent)
+        };
+        if self.bandwidth_limit_bps > 0 {
+            p.bandwidth_limit_bps = if p.bandwidth_limit_bps == 0 {
+                self.bandwidth_limit_bps
+            } else {
+                p.bandwidth_limit_bps.min(self.bandwidth_limit_bps)
+            }
+        };
+        p
     }
 }

@@ -1,0 +1,9 @@
+{
+  "archive": ".cache/next-release/LinkNestX-0.2.0-deployment.tar.gz",
+  "bytes": 44100828,
+  "sha256": "af1579a4c19aa5c47c4ca6aff28db2659e232bed3c11a322d4a807cb3db78743",
+  "regularFilesVerified": 143,
+  "checksumCoverageComplete": true,
+  "unsafeEntries": false,
+  "serverContacted": false
+}

@@ -14,6 +14,8 @@ import (
 	"github.com/linknestx/linknestx/server/internal/config"
 	"github.com/linknestx/linknestx/server/internal/files"
 	"github.com/linknestx/linknestx/server/internal/groups"
+	"github.com/linknestx/linknestx/server/internal/releases"
+	"github.com/linknestx/linknestx/server/internal/social"
 )
 
 // HealthResponse is the stable response returned by GET /healthz.
@@ -32,6 +34,9 @@ func NewHandler(cfg config.Config) stdhttp.Handler {
 		version = applicationVersion()
 	}
 	mux.Handle("GET /healthz", healthHandler(version))
+	mux.Handle("GET /{$}", landingHandler())
+	mux.Handle("GET /app/", webAssets(cfg.WebAssetsDir))
+	registerReleaseRoutes(mux, cfg.ReleaseDir)
 	return mux
 }
 
@@ -47,13 +52,16 @@ func NewRouter(cfg config.Config) stdhttp.Handler {
 func NewRouterWithAuth(cfg config.Config, service *auth.AuthService) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.Handle("/healthz", NewHandler(cfg))
+	mux.Handle("GET /{$}", landingHandler())
+	mux.Handle("GET /app/", webAssets(cfg.WebAssetsDir))
+	registerReleaseRoutes(mux, cfg.ReleaseDir)
 	if service != nil {
 		handlers := NewAuthHandlers(service)
 		handlers.configureTrustedProxies(cfg.TrustedProxyCIDRs)
 		handlers.Register(mux)
 		(&AuditHandlers{Service: audit.NewService(service.Database(), service)}).Register(mux, service)
 	}
-	return mux
+	return withTrustedWebScheme(cfg.TrustedProxyCIDRs, mux)
 }
 
 // NewRouterWithServices composes caller-owned feature services. The caller must
@@ -61,15 +69,26 @@ func NewRouterWithAuth(cfg config.Config, service *auth.AuthService) stdhttp.Han
 func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.GroupService, c *chat.ChatService, hub *chat.Hub, fileServices ...*files.FileService) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.Handle("/", NewRouterWithAuth(cfg, a))
+	g.SetMemberObserver(hub.MembershipChanged)
 	NewGroupHandlers(g).Register(mux, a)
+	(&SocialHandlers{Service: social.New(a, c, hub), Chat: c}).Register(mux, a)
 	ch := NewChatHandlers(c)
 	mux.Handle("GET /api/v1/groups/{groupID}/messages", RequireAuth(a, stdhttp.HandlerFunc(ch.List)))
 	mux.Handle("POST /api/v1/groups/{groupID}/messages", RequireAuth(a, stdhttp.HandlerFunc(ch.Append)))
 	mux.Handle("GET /api/v1/ws", RequireAuth(a, hub))
 	if len(fileServices) > 0 && fileServices[0] != nil {
+		fileServices[0].SetChangeObserver(hub.FilesChanged)
 		NewFileHandlers(fileServices[0]).Register(mux, a)
+		mux.Handle("GET /api/v1/web/files/{versionID}/download", RequireAuth(a, &WebDownloads{Service: fileServices[0]}))
 	}
-	return mux
+	return withTrustedWebScheme(cfg.TrustedProxyCIDRs, mux)
+}
+
+func registerReleaseRoutes(mux *stdhttp.ServeMux, root string) {
+	handler := releases.NewHandler(root)
+	for _, route := range []string{"/downloads", "/downloads/", "/api/v1/releases", "/releases/", "/updates/"} {
+		mux.Handle(route, handler)
+	}
 }
 
 // NewHealthHandler returns just the health handler, useful for focused tests

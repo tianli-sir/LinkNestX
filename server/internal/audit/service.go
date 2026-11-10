@@ -295,13 +295,16 @@ type TransferInput struct {
 }
 
 func (s *Service) RecordClientTransfer(ctx context.Context, in TransferInput) error {
-	if !validID(in.TaskID) || !validID(in.VersionID) || (in.NodeID != "server" && !validID(in.NodeID)) || in.Bytes < 0 || in.Bytes > 20000000000 {
+	if !validID(in.TaskID) || !validID(in.VersionID) || (in.NodeID != "server" && in.NodeID != "local" && !validID(in.NodeID)) || in.Bytes < 0 || in.Bytes > 20000000000 {
 		return ErrInvalidInput
 	}
-	if in.Action != "peer.sent" && in.Action != "peer.received" && in.Action != "transfer.completed" {
+	if in.Action != "peer.sent" && in.Action != "peer.received" && in.Action != "transfer.completed" && in.Action != "download.completed" {
 		return ErrInvalidInput
 	}
 	if in.NodeID == "server" && in.Action != "transfer.completed" {
+		return ErrInvalidInput
+	}
+	if (in.Action == "download.completed") != (in.NodeID == "local") {
 		return ErrInvalidInput
 	}
 	actor, ok := auth.UserFromContext(ctx)
@@ -321,17 +324,17 @@ func (s *Service) RecordClientTransfer(ctx context.Context, in TransferInput) er
 	}
 	var file string
 	var size int64
-	err = tx.QueryRowContext(ctx, `SELECT f.id,v.size FROM file_versions v JOIN files f ON f.id=v.file_id JOIN users u ON u.id=? JOIN sessions s ON s.user_id=u.id WHERE v.id=? AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday('now') AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND (f.visibility='pool' OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=u.id) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND r.name='admin'))`, actor.ID, in.VersionID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&file, &size)
+	err = tx.QueryRowContext(ctx, `SELECT f.id,v.size FROM file_versions v JOIN files f ON f.id=v.file_id JOIN users u ON u.id=? JOIN sessions s ON s.user_id=u.id WHERE v.id=? AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday('now') AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d JOIN group_members gm ON gm.group_id=d.group_id AND gm.user_id=u.id WHERE d.group_id=f.group_id AND u.id IN(d.pair_low,d.pair_high))) AND ((f.visibility='pool' AND f.listed=1) OR (f.visibility<>'pool' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=u.id)) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND r.name='admin'))`, actor.ID, in.VersionID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&file, &size)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrTransferForbidden
 	}
 	if err != nil {
 		return err
 	}
-	if in.Bytes > size {
+	if in.Bytes > size || (in.Action == "download.completed" && in.Bytes != size) {
 		return ErrInvalidInput
 	}
-	if in.NodeID != "server" {
+	if in.NodeID != "server" && in.NodeID != "local" {
 		if in.NodeID == auth.DeviceIDFromContext(ctx) {
 			return ErrInvalidInput
 		}

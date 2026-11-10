@@ -11,6 +11,8 @@ export interface ApiTransport {
 export interface NativeTransport extends ApiTransport {
   login(input: LoginInput): Promise<Session>;
   logout(): Promise<void>;
+  restore?(): Promise<Session>;
+  refresh?(): Promise<Session>;
 }
 
 export class ApiError extends Error {
@@ -47,8 +49,11 @@ export function normalizeServerUrl(value: string): string {
     throw new ApiError("请输入有效的服务器地址，例如 https://files.example.com");
   }
   const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw new ApiError("服务器需要使用 HTTPS；HTTP 仅支持本机开发地址");
+  const octets = /^\d+\.\d+\.\d+\.\d+$/.test(url.hostname) ? url.hostname.split(".").map(Number) : [];
+  const privateIpv4 = octets.length === 4 && octets.every((octet) => octet >= 0 && octet <= 255)
+    && (octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168));
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || privateIpv4))) {
+    throw new ApiError("公网地址需使用 HTTPS；局域网私有 IPv4 或本机地址可使用 HTTP");
   }
   if (!url.hostname || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
     throw new ApiError("请填写服务器地址，不包含账号、路径或查询参数");
@@ -71,7 +76,7 @@ export function createNativeTransport(invokeCommand: Invoke = desktopInvoke): Na
   };
   return {
     request: <T>(method: HttpMethod, path: string, body?: unknown) => call<T>("api_request", { method, path, body: body ?? null }),
-    login: (input) => call<Session>("login", { ...input, serverUrl: normalizeServerUrl(input.serverUrl) }),
+    login: ({ username, password, deviceId }) => call<Session>("login", { username, password, ...(deviceId ? { deviceId } : {}) }),
     logout: () => call<void>("logout"),
   };
 }

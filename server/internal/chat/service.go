@@ -28,6 +28,10 @@ type AppendInput struct {
 	Body            string `json:"body"`
 }
 type Message struct {
+	ConversationID   string     `json:"conversationId"`
+	Sender           *auth.User `json:"sender,omitempty"`
+	ReadCount        int        `json:"readCount"`
+	ReadByMe         bool       `json:"readByMe"`
 	ID               string     `json:"id"`
 	Sequence         int64      `json:"sequence"`
 	GroupID          string     `json:"groupId"`
@@ -39,6 +43,8 @@ type Message struct {
 	Cursor           string     `json:"cursor"`
 	FileID           *string    `json:"fileId,omitempty"`
 	FileVersionID    *string    `json:"fileVersionId,omitempty"`
+	AttachmentName   *string    `json:"attachmentName,omitempty"`
+	AttachmentSize   *int64     `json:"attachmentSize,omitempty"`
 	AttachmentStatus *string    `json:"attachmentStatus,omitempty"`
 }
 type MessagePage struct {
@@ -75,6 +81,9 @@ func (s *ChatService) Append(ctx context.Context, actorID string, in AppendInput
 	defer s.mu.Unlock()
 	m := Message{ID: uuid.NewString(), GroupID: in.GroupID, SenderID: actorID, ClientMessageID: in.ClientMessageID, Body: &in.Body, CreatedAt: s.now().UTC()}
 	saved, created, err := s.repo.append(ctx, m)
+	if err == nil {
+		err = s.project(ctx, actorID, &saved)
+	}
 	if err == nil && created && s.hub != nil {
 		s.hub.Publish(saved)
 	}

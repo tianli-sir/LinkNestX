@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LinkNestX API
-  version: 0.1.0
+  version: 0.2.0
   description: >-
     Authenticated API for LAN and internet collaboration. Local password accounts
     are the phase-one identity method; optional MFA is a later enhancement.
@@ -97,7 +97,7 @@ paths:
   /api/v1/groups:
     get:
       operationId: listGroups
-      summary: List groups the current account belongs to
+      summary: List joined groups, or all groups for an administrator (isMember preserves chat separation)
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -134,7 +134,7 @@ paths:
           content:
             application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GroupMember' } } }
         '401': { description: Authentication required }
-        '403': { description: Current group membership required }
+        '403': { description: Current group membership or administrator required }
     post:
       operationId: addGroupMember
       summary: Add a member or change their role (group owners or administrators)
@@ -355,7 +355,7 @@ paths:
       operationId: downloadFileChunk
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: X-Transfer-ID, in: header, description: Optional task identifier for aggregate server delivery records, schema: { type: string, maxLength: 128 } }
+        - { name: X-Transfer-ID, in: header, description: Native task UUID for aggregate server delivery records; native clients always provide it, schema: { type: string, maxLength: 128 } }
       responses:
         '200':
           description: Entire chunk stream with exact Content-Length; permissions and lifecycle rechecked for every request
@@ -390,6 +390,27 @@ paths:
   /api/v1/files/{fileId}:
     parameters:
       - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      operationId: editPoolFile
+      summary: Change pool display metadata or reversible listing state (administrator only)
+      description: Retains all immutable versions and permanent storage. Unlisted files are inaccessible to employees, including original group members, and remain manageable by administrators.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                listed: { type: boolean }
+      responses:
+        '204': { description: Metadata/listing state saved and audited }
+        '400': { description: Invalid display name, empty edit or non-pool file }
+        '403': { description: Administrator required }
+        '404': { description: Deleted or missing file }
     delete:
       operationId: deleteFile
       security: [{ bearerAuth: [] }]
@@ -474,6 +495,41 @@ paths:
         '401': { description: Current authentication required }
         '403': { description: File access denied }
         '404': { description: File unavailable }
+  /api/v1/p2p/allocate:
+    post:
+      operationId: allocateInitialPeerRegion
+      summary: Allocate a disjoint initial download region among three devices
+      description: Requires current actor/session/device and version read access. A 60-second in-memory lease, keyed by version and trusted device, selects the least occupied of min(3, chunkCount) contiguous regions. First three distinct devices receive disjoint regions regardless of their UUID values. Same-device retries and concurrent tasks reuse its live lease. At most 1024 live leases exist globally; expiry and periodic cleanup prune them. A zero-chunk file returns [0,0). This is a scheduling hint and grants no file access. Native coordination is optional with a three-second overall startup deadline and HTTP fallback.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [versionId, taskId]
+              properties:
+                versionId: { type: string, format: uuid }
+                taskId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Half-open initial region and lease expiry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [startIndex, endIndex, expiresAt]
+                properties:
+                  startIndex: { type: integer, minimum: 0 }
+                  endIndex: { type: integer, minimum: 0 }
+                  expiresAt: { type: string, format: date-time }
+        '400': { description: Invalid UUID or malformed input }
+        '401': { description: Current authenticated session required }
+        '403': { description: Current version permission denied }
+        '404': { description: File version unavailable }
+        '413': { description: Body exceeds 65536 bytes }
+        '429': { description: Allocation capacity reached; use normal HTTP download }
   /api/v1/p2p/config:
     get:
       operationId: peerICEConfiguration
@@ -724,7 +780,7 @@ paths:
     post:
       operationId: reportClientTransfer
       security: [{ bearerAuth: [] }]
-      description: Cumulative client-reported counters, authenticated by current user/device/session and current version ACL. Max bytes upsert per user/device/task/version/node/action makes retry idempotent. Peer attribution uses a durable device identity or a recorded negotiation for the reporting device pair and version, so delayed history remains reportable after the other participant logs out, loses membership, is disabled, or has its device revoked. Current reporter/session/version permissions remain required. This does not authorize new chunk access; server is allowed only for transfer.completed. Acknowledgement does not prove delivery and must not gate verified local delivery.
+      description: Cumulative client-reported counters, authenticated by current user/device/session and current version ACL. Max bytes upsert per user/device/task/version/node/action makes retry idempotent. Peer attribution uses a durable device identity or a recorded negotiation for the reporting device pair and version, so delayed history remains reportable after the other participant logs out, loses membership, is disabled, or has its device revoked. Current reporter/session/version permissions remain required. This does not authorize new chunk access; server is allowed only for transfer.completed. download.completed requires nodeId=local and bytes equal the complete version size, including zero; it records a successful save without attributing network traffic. Acknowledgement does not prove delivery and must not gate verified local delivery.
       requestBody:
         required: true
         content:
@@ -733,6 +789,435 @@ paths:
         '204': { description: Client report accepted }
         '400': { description: Invalid UUID, action, or counter exceeding version size }
         '403': { description: Current version or peer access denied }
+  /api/v1/sharing-policies/{scope}/{targetId}:
+    parameters:
+      - { name: scope, in: path, required: true, schema: { type: string, enum: [group, pool] } }
+      - { name: targetId, in: path, required: true, schema: { type: string, format: uuid }, description: Group ID for group scope; public-pool file ID for pool scope }
+    get:
+      operationId: getAdminSharingPolicy
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Authoritative policy; absent setting defaults to allowed/unlimited
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/AdminSharingPolicy' } }
+        '403': { description: Administrator required }
+        '404': { description: Target unavailable }
+    put:
+      operationId: setAdminSharingPolicy
+      description: Audited policy controls P2P announcements, discovery, offers and per-chunk validation. Disabled P2P returns 409; ordinary authorized HTTP downloads stay available. Pool-file policy supersedes the originating group policy.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/AdminSharingPolicy' } }
+      responses:
+        '204': { description: Policy saved }
+        '400': { description: Invalid limits }
+        '403': { description: Administrator required }
+        '404': { description: Target unavailable }
+  /api/v1/profiles/{userID}:
+    parameters:
+      - { in: path, name: userID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: profile
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/User' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/profiles/{userID}/avatar:
+    parameters:
+      - { in: path, name: userID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: profileAvatar
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      responses:
+        '200':
+          description: Successful result
+          content:
+            image/png: { schema: { type: string, format: binary } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/profile:
+    patch:
+      operationId: updateProfile
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ProfilePatch' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/User' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/profile/avatar:
+    put:
+      operationId: updateAvatar
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      description: Desktop only. Raw PNG/JPEG <= 2 MiB; normalized to PNG with longest side <= 256 px.
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/User' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/contacts/search:
+    get:
+      operationId: searchAccountNumber
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: query, name: accountNumber, required: true, schema: { type: string, pattern: '^[0-9]{8,}$' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/User' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/contacts:
+    get:
+      operationId: contacts
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Contacts' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/contacts/{userID}:
+    parameters:
+      - { in: path, name: userID, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: deleteContact
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      responses:
+        '204':
+          description: Successful result
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/friend-requests:
+    post:
+      operationId: requestFriend
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/FriendRequestInput' } }
+      responses:
+        '201':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/FriendRequest' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/friend-requests/{id}/{action}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: action, required: true, schema: { type: string, enum: [accept, reject, cancel] } }
+    post:
+      operationId: actFriendRequest
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/EmptyRequest' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/FriendRequest' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/conversations:
+    get:
+      operationId: conversations
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Conversations' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/conversations/direct:
+    post:
+      operationId: openDirect
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/DirectInput' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Conversation' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/conversations/{id}/messages:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: conversationMessages
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: query, name: before, schema: { type: string }, description: Opaque cursor; mutually exclusive with after }
+        - { in: query, name: after, schema: { type: string }, description: No cursor selects newest page; every page ascending }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/MessagePage' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+    post:
+      operationId: appendConversationMessage
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/AppendMessageRequest' } }
+      responses:
+        '201':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Message' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/conversations/{id}/read:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: markVisibleMessagesRead
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ReadInput' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ReadConfirmation' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/conversations/{id}/messages/{messageID}/readers:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: messageID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: messageReaders
+      security: [{ bearerAuth: [] }, { webCookie: [] }]
+        # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
+        # See docs/next-release-contract.md for the exact browser allowlist.
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Readers' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/web/login:
+    post:
+      operationId: webLogin
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/WebSession' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/web/session:
+    get:
+      operationId: webSession
+      security: [{ webCookie: [] }]
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/WebSession' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/web/refresh:
+    post:
+      operationId: webRefresh
+      security: [{ webCookie: [] }]
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/EmptyRequest' } }
+      responses:
+        '200':
+          description: Successful result
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/WebSession' } }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/web/logout:
+    post:
+      operationId: webLogout
+      security: [{ webCookie: [] }]
+      parameters:
+        - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
+        - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/EmptyRequest' } }
+      responses:
+        '204':
+          description: Successful result
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+  /api/v1/web/files/{versionID}/download:
+    parameters:
+      - { in: path, name: versionID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: webDownload
+      security: [{ webCookie: [] }]
+      responses:
+        '200':
+          description: Authenticated bounded stream; one active download per session; no Range support
+          headers:
+            Content-Disposition: { schema: { type: string }, description: Safe attachment filename }
+            Content-Length: { schema: { type: integer, maximum: 1000000000 } }
+        '409': { description: Another active download in this session }
+        '413': { description: File larger than 1000000000 bytes; use desktop }
+        '416': { description: Range requests are unsupported }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
+    head:
+      operationId: webDownloadMetadata
+      security: [{ webCookie: [] }]
+      responses:
+        '200':
+          description: Authenticated bounded stream; one active download per session; no Range support
+          headers:
+            Content-Disposition: { schema: { type: string }, description: Safe attachment filename }
+            Content-Length: { schema: { type: integer, maximum: 1000000000 } }
+        '409': { description: Another active download in this session }
+        '413': { description: File larger than 1000000000 bytes; use desktop }
+        '416': { description: Range requests are unsupported }
+        '400': { description: Invalid request }
+        '401': { description: Session missing, expired or revoked }
+        '403': { description: Permission, origin, CSRF or browser capability denied }
+        '404': { description: Resource unavailable }
 components:
   requestBodies:
     EmptyObject:
@@ -750,6 +1235,11 @@ components:
     AuditFrom: { in: query, name: from, schema: { type: string, format: date-time }, description: Inclusive UTC instant }
     AuditBefore: { in: query, name: before, schema: { type: string, format: date-time }, description: Exclusive UTC instant }
   securitySchemes:
+    webCookie:
+      type: apiKey
+      in: cookie
+      name: lnx_web
+      description: HttpOnly SameSite Strict cookie; HTTPS Secure. Browser writes require Origin and X-CSRF-Token.
     bearerAuth:
       type: http
       scheme: bearer
@@ -784,8 +1274,11 @@ components:
         refreshToken: { type: string }
     User:
       type: object
-      required: [id, username, disabled, createdAt, mustChangePassword]
+      required: [id, username, disabled, createdAt, mustChangePassword, accountNumber, displayName]
       properties:
+        accountNumber: { type: string, pattern: '^[0-9]{8,}$', readOnly: true }
+        displayName: { type: string, maxLength: 80 }
+        avatarUrl: { type: string, description: Same-origin authenticated PNG path }
         id: { type: string, format: uuid }
         username: { type: string }
         email: { type: string, format: email }
@@ -806,12 +1299,13 @@ components:
         user: { $ref: '#/components/schemas/User' }
     Group:
       type: object
-      required: [id, name, createdBy, createdAt]
+      required: [id, name, createdBy, createdAt, isMember]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         createdBy: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
+        isMember: { type: boolean, description: Only members can read or send ordinary chat }
     CreateGroupRequest:
       type: object
       additionalProperties: false
@@ -844,6 +1338,10 @@ components:
       type: object
       required: [id, sequence, groupId, senderId, clientMessageId, body, createdAt, cursor]
       properties:
+        conversationId: { type: string, format: uuid }
+        sender: { $ref: '#/components/schemas/User' }
+        readCount: { type: integer, minimum: 0, description: Current enabled entitled readers excluding sender }
+        readByMe: { type: boolean }
         id: { type: string, format: uuid }
         sequence: { type: integer, format: int64, description: Monotonic server commit order; gaps between groups are normal }
         groupId: { type: string, format: uuid }
@@ -855,7 +1353,9 @@ components:
         cursor: { type: string, description: Opaque cursor through this message within its group }
         fileId: { type: string, format: uuid }
         fileVersionId: { type: string, format: uuid }
-        attachmentStatus: { type: string, enum: [available, deleted, expired] }
+        attachmentName: { type: string, description: Original immutable version filename; absent after message retention expiry }
+        attachmentSize: { type: integer, minimum: 0, description: Original immutable version size }
+        attachmentStatus: { type: string, enum: [available, deleted, expired, unlisted] }
     MessagePage:
       type: object
       required: [messages, nextCursor, hasMore]
@@ -876,7 +1376,8 @@ components:
       type: object
       required: [type]
       properties:
-        type: { type: string, enum: [session.ready, message.created, message.ack, presence.changed, pong, error] }
+        type: { type: string, enum: [session.ready, message.created, message.ack, presence.changed, membership.changed, files.changed, pong, error] }
+        eventId: { type: string, format: uuid, description: Unique membership/file change event for notification deduplication }
         requestId: { type: string }
         groupId: { type: string, format: uuid }
         userId: { type: string, format: uuid }
@@ -927,6 +1428,7 @@ components:
         status: { type: string, enum: [published] }
         size: { type: integer }
         sha256: { type: string }
+        listed: { type: boolean, default: true, description: Unlisted pool files remain permanent and administrator-only }
     FileVersion:
       type: object
       required: [fileId, versionId, name, size, sha256, chunkSize, chunks, expiresAt, visibility, createdAt, createdBy, status]
@@ -943,6 +1445,15 @@ components:
         createdAt: { type: string, format: date-time }
         createdBy: { type: string, format: uuid }
         status: { type: string, enum: [published] }
+        sharingPolicy: { $ref: '#/components/schemas/AdminSharingPolicy' }
+    AdminSharingPolicy:
+      type: object
+      additionalProperties: false
+      required: [enabled, maxConcurrent, bandwidthLimitBps]
+      properties:
+        enabled: { type: boolean, default: true }
+        maxConcurrent: { type: integer, minimum: 0, maximum: 32, default: 0, description: Zero means unlimited; native uses minimum positive local/admin cap }
+        bandwidthLimitBps: { type: integer, minimum: 0, default: 0, description: Zero means unlimited; per-version admin aggregate combines with local aggregate }
     OptionalPeerVersion:
       type: object
       additionalProperties: false
@@ -1056,6 +1567,98 @@ components:
       properties:
         taskId: { type: string, format: uuid }
         versionId: { type: string, format: uuid }
-        nodeId: { type: string, description: Peer device UUID or server }
-        action: { type: string, enum: [peer.sent, peer.received, transfer.completed] }
+        nodeId: { type: string, description: Peer device UUID or server for source contribution; local only for download.completed }
+        action: { type: string, enum: [peer.sent, peer.received, transfer.completed, download.completed] }
         bytes: { type: integer, minimum: 0, maximum: 20000000000 }
+
+    EmptyRequest: { type: object, additionalProperties: false }
+    ProfilePatch:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 80 }
+    FriendRequestInput:
+      type: object
+      additionalProperties: false
+      required: [accountNumber]
+      properties:
+        accountNumber: { type: string, pattern: '^[0-9]{8,}$' }
+    DirectInput:
+      type: object
+      additionalProperties: false
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+    FriendRequest:
+      type: object
+      required: [id, from, to, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        from: { $ref: '#/components/schemas/User' }
+        to: { $ref: '#/components/schemas/User' }
+        status: { type: string, enum: [pending, accepted, rejected, cancelled] }
+        createdAt: { type: string, format: date-time }
+    Contacts:
+      type: object
+      required: [friends, incoming, outgoing]
+      properties:
+        friends: { type: array, items: { $ref: '#/components/schemas/User' } }
+        incoming: { type: array, items: { $ref: '#/components/schemas/FriendRequest' } }
+        outgoing: { type: array, items: { $ref: '#/components/schemas/FriendRequest' } }
+    Conversation:
+      type: object
+      required: [id, kind, title, memberCount, unreadCount, canSend]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [group, direct] }
+        title: { type: string }
+        avatarUrl: { type: string }
+        peer: { $ref: '#/components/schemas/User' }
+        memberCount: { type: integer, minimum: 0 }
+        unreadCount: { type: integer, minimum: 0 }
+        lastMessage: { $ref: '#/components/schemas/Message' }
+        canSend: { type: boolean }
+    Conversations: { type: array, items: { $ref: '#/components/schemas/Conversation' } }
+    ReadInput:
+      type: object
+      additionalProperties: false
+      required: [messageIds]
+      properties:
+        messageIds: { type: array, minItems: 1, maxItems: 100, items: { type: string, format: uuid } }
+    ReadConfirmation:
+      type: object
+      required: [messageIds]
+      properties:
+        messageIds: { type: array, uniqueItems: true, maxItems: 100, items: { type: string, format: uuid } }
+    Reader:
+      allOf:
+        - { $ref: '#/components/schemas/User' }
+        - type: object
+          required: [readAt]
+          properties:
+            readAt: { type: string, format: date-time }
+    Readers:
+      type: object
+      required: [readers, count]
+      properties:
+        readers: { type: array, items: { $ref: '#/components/schemas/Reader' } }
+        count: { type: integer, minimum: 0 }
+    WebSession:
+      type: object
+      required: [user, expiresAt, csrfToken, capabilities]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        expiresAt: { type: string, format: date-time }
+        csrfToken: { type: string }
+        capabilities:
+          type: object
+          required: [upload, p2p, adminWrite, profileEdit, nativeTransfers, updates, maxDownloadBytes]
+          properties:
+            upload: { type: boolean, const: false }
+            p2p: { type: boolean, const: false }
+            adminWrite: { type: boolean, const: false }
+            profileEdit: { type: boolean, const: false }
+            nativeTransfers: { type: boolean, const: false }
+            updates: { type: boolean, const: false }
+            maxDownloadBytes: { type: integer, const: 1000000000 }

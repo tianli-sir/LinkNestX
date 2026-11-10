@@ -395,3 +395,42 @@ func TestValidateActorRechecksIdentityRevocationAndExpiry(t *testing.T) {
 		t.Fatalf("revoked=%v", err)
 	}
 }
+
+func TestBrowserContextRetainsSessionExpiryWithoutExtendingNativeBearer(t *testing.T) {
+	s := testService(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	s.SetClock(func() time.Time { return now })
+	ctx := context.Background()
+	if _, e := s.BootstrapAdmin(ctx, CreateUserInput{Username: "admin", Password: "password123"}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.Database().Exec(`UPDATE users SET must_change_password=0`); e != nil {
+		t.Fatal(e)
+	}
+	native, e := s.Login(ctx, LoginInput{Username: "admin", Password: "password123"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	web, e := s.LoginWeb(ctx, LoginInput{Username: "admin", Password: "password123"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	verified, _, e := s.AuthenticateWeb(ctx, web.RefreshToken)
+	if e != nil {
+		t.Fatal(e)
+	}
+	now = now.Add(16 * time.Minute)
+	if _, _, _, _, e = s.AuthenticateAccessToken(ctx, native.AccessToken); e == nil {
+		t.Fatal("native bearer lifetime extended")
+	}
+	if e = s.ValidateActor(verified, web.User.ID); e != nil {
+		t.Fatalf("browser session rejected after native deadline: %v", e)
+	}
+	// Shortening the persisted session still takes effect in an existing context.
+	if _, e = s.Database().Exec(`UPDATE sessions SET expires_at=? WHERE id=?`, now.Add(-time.Second).Format(time.RFC3339Nano), web.ID); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.ValidateActor(verified, web.User.ID); !errors.Is(e, ErrSessionExpired) {
+		t.Fatalf("persisted expiry ignored: %v", e)
+	}
+}

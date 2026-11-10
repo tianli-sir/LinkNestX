@@ -21,3 +21,13 @@ client/src-tauri/gen/
 .DS_Store
 .idea/
 .vscode/
+
+# Local agent tooling and environment-specific deployment records
+.agents/
+.claude/
+.superpowers/
+docs/deployments/
+
+# Release signing secrets (public verification keys remain versioned)
+*.key
+*.pem

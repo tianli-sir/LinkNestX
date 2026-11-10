@@ -21,6 +21,8 @@
 - Administrators create accounts and groups; group owners manage group membership; administrators manage the public pool and all files.
 - Clients default to background sharing while the app is running; closing the main window leaves the tray/background transfer process active.
 - P2P is direct-first, then relay, then server; P2P failure must never block a server-backed download.
+- Verified partial chunks are immediately shareable; downloaders may combine server and peer sources concurrently, as required by the original three-downloader example.
+- Cleanup removes app-managed cache copies only, never explicit user destination files.
 - The server may read content; transport is encrypted and local storage must be access-controlled.
 - No anonymous download, no first-phase private chat or announcements, and no first-phase external identity provider integration.
 

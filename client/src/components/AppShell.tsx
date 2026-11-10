@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
 import "../styles/desktop.css";
 
-export type NavigationKey = "groups" | "pool" | "transfers" | "admin";
+export type NavigationKey = "groups" | "contacts" | "pool" | "transfers" | "admin";
 export interface ShellUser { username: string; roles: string[] }
 export interface ConnectionState {
   status: "connected" | "connecting" | "disconnected" | "error";
@@ -18,28 +18,30 @@ export interface AppShellProps {
   transferLabel?: string;
   title?: string;
   headerActions?: ReactNode;
+  canManage?: boolean;
   onSettings?(): void;
   onLogout?(): void;
 }
-const navigation: Array<{ key: NavigationKey; label: string; icon: IconName }> = [
-  { key: "groups", label: "群组", icon: "groups" },
-  { key: "pool", label: "公共文件池", icon: "folder" },
-  { key: "transfers", label: "传输任务", icon: "transfers" },
-  { key: "admin", label: "管理中心", icon: "admin" },
+export const workspaceModules: Array<{ key: NavigationKey; label: string; icon: IconName }> = [
+  { key: "groups", label: "消息", icon: "chat" },
+  { key: "contacts", label: "联系人", icon: "groups" },
+  { key: "pool", label: "文件", icon: "folder" },
+  { key: "transfers", label: "传输", icon: "transfers" },
+  { key: "admin", label: "管理", icon: "admin" },
 ];
 const connectionLabels: Record<ConnectionState["status"], string> = {
   connected: "已连接", connecting: "正在连接", disconnected: "未连接", error: "连接异常",
 };
 
-export function AppShell({ children, user, selected, onNavigate, connection, activeTransfers = 0, transferLabel, title, headerActions, onSettings, onLogout }: AppShellProps) {
+export function AppShell({ children, user, selected, onNavigate, connection, activeTransfers = 0, transferLabel, title, headerActions, canManage: managementAllowed = true, onSettings, onLogout }: AppShellProps) {
   const id = useId();
   const [accountOpen, setAccountOpen] = useState(false);
   const accountButton = useRef<HTMLButtonElement>(null);
   const accountArea = useRef<HTMLDivElement>(null);
   const workspace = useRef<HTMLElement>(null);
   const previousPage = useRef(selected);
-  const canManage = user.roles.includes("admin");
-  const availableNavigation = navigation.filter((item) => item.key !== "admin" || canManage);
+  const canManage = user.roles.includes("admin") && managementAllowed;
+  const availableNavigation = workspaceModules.filter((item) => item.key !== "admin" || canManage);
   const currentTitle = title ?? availableNavigation.find((item) => item.key === selected)?.label ?? "工作区";
   const transfers = Math.max(0, Math.floor(activeTransfers));
 
@@ -62,12 +64,12 @@ export function AppShell({ children, user, selected, onNavigate, connection, act
     action?.();
   }
 
-  return <div className="ln-desktop">
+  return <div className={`ln-desktop ${selected==="groups"||selected==="contacts"?"is-messaging":""}`}>
     <a href={`#${id}-workspace`} className="ln-skip-link" onClick={(event) => { event.preventDefault(); workspace.current?.focus(); }}>跳至工作区</a>
     <aside className="ln-sidebar" aria-label="工作区侧栏">
       <div className="ln-sidebar-brand"><span className="ln-brand-mark"><Icon name="nest" size={23} /></span><div><strong>LinkNestX</strong><span>企业协作</span></div></div>
       <nav aria-label="主导航" className="ln-navigation">
-        {availableNavigation.map((item) => <button type="button" key={item.key} className="ln-nav-button" aria-current={selected === item.key ? "page" : undefined} onClick={() => onNavigate(item.key)}><Icon name={item.icon} /><span>{item.label}</span></button>)}
+        {availableNavigation.map((item) => <button type="button" key={item.key} className="ln-nav-button" aria-label={item.label} aria-current={selected === item.key ? "page" : undefined} onClick={() => onNavigate(item.key)}><Icon name={item.icon} /><span>{item.label}</span>{item.key==="transfers"&&transfers>0&&<b className="im-nav-badge">{transfers}</b>}</button>)}
       </nav>
       <div className="ln-account" ref={accountArea} onKeyDown={(event) => { if (event.key === "Escape" && accountOpen) { event.stopPropagation(); setAccountOpen(false); accountButton.current?.focus(); } }}>
         <button type="button" className="ln-account-button" aria-label={`${user.username} 的账户选项`} aria-expanded={accountOpen} aria-controls={`${id}-account-options`} onClick={() => setAccountOpen((open) => !open)} ref={accountButton}>

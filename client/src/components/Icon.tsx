@@ -2,6 +2,7 @@ import { useId, type SVGProps } from "react";
 
 const paths = {
   nest: <><path d="m4 8 8-5 8 5v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" /><path d="m8 10 4 3 4-3M8 14l4 3 4-3" /></>,
+  chat: <><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3v-3H3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h6"/></>,
   groups: <><circle cx="9" cy="8" r="3" /><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v2" /></>,
   folder: <path d="M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />,
   transfers: <><path d="M7 3v16m-4-4 4 4 4-4M17 21V5m-4 4 4-4 4 4" /></>,

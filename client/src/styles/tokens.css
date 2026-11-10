@@ -1,16 +1,16 @@
 :root {
-  --ln-color-background: #f5f7fb;
+  --ln-color-background: #f4f7f7;
   --ln-color-surface: #ffffff;
-  --ln-color-text: #202b40;
-  --ln-color-muted: #58677d;
-  --ln-color-primary: #4053af;
-  --ln-color-primary-hover: #354696;
-  --ln-color-primary-soft: #edf0fc;
+  --ln-color-text: #182c2b;
+  --ln-color-muted: #526b68;
+  --ln-color-primary: #0f766e;
+  --ln-color-primary-hover: #115e59;
+  --ln-color-primary-soft: #e6f4f1;
   --ln-color-sharing: #177864;
   --ln-color-sharing-soft: #edf7f3;
-  --ln-color-border: #e0e5ee;
-  --ln-color-input-border: #8793a5;
-  --ln-color-error: #b0323c;
+  --ln-color-border: #dce7e4;
+  --ln-color-input-border: #8aa29d;
+  --ln-color-error: #b42336;
   --ln-color-error-soft: #fff3f3;
   --ln-font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --ln-font-body: 14px;
@@ -24,7 +24,7 @@
   --ln-space-5: 20px;
   --ln-space-6: 24px;
   --ln-space-8: 32px;
-  --ln-rail-width: 240px;
+  --ln-rail-width: 76px;
   --ln-header-height: 64px;
   --ln-motion-fast: 140ms;
 }

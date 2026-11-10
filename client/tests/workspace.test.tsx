@@ -1,9 +1,10 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { harness, msg, user } from "./workspace-fixtures";
 describe("real desktop workflows", () => {
-  it("shows authenticated groups and safely renders messages from forward pages", async () => {
-    const h = harness({ request: async (_, path) => path.includes("/messages?") ? path.includes("cursor=cursor-1") ? { messages: [msg("2", 2, "第二条")], nextCursor: "cursor-2", hasMore: false } : { messages: [msg("1", 1, '<img src=x onerror="alert(1)">')], nextCursor: "cursor-1", hasMore: true } : undefined });
+  it("loads newest history and safely renders older messages only on demand", async () => {
+    const h = harness({ request: async (_, path) => path.includes("/messages?") ? path.includes("before=cursor-1") ? { messages: [msg("2", 2, "第二条")], nextCursor: "cursor-2", hasMore: false } : { messages: [msg("1", 1, '<img src=x onerror="alert(1)">')], nextCursor: "cursor-1", hasMore: true } : undefined });
     await h.login();
+    fireEvent.click(await screen.findByRole("button",{name:"加载更早消息"}));
     await screen.findByText("第二条");
     expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
     expect(document.querySelector(".ln-message img")).toBeNull();
@@ -46,8 +47,9 @@ describe("real desktop workflows", () => {
     await screen.findByText("设计内容");
     await act(async () => resolveOld({ messages: [msg("old", 1, "过时响应")], nextCursor: "old", hasMore: false }));
     expect(screen.queryByText("过时响应")).not.toBeInTheDocument();
+    const before=h.request.mock.calls.filter(c=>c[1].includes("/g2/messages?limit=")).length;
     await h.emit("server.event", { type: "session.ready" });
-    await waitFor(() => expect(h.request.mock.calls.some(c => c[1].includes("cursor=new-cursor"))).toBe(true));
+    await waitFor(() => expect(h.request.mock.calls.filter(c=>c[1].includes("/g2/messages?limit=")).length).toBeGreaterThan(before));
   });
   it("delegates version download to native and hides pool deletion from employees", async () => {
     const h = harness({ request: async (_, path) => {
@@ -57,7 +59,7 @@ describe("real desktop workflows", () => {
           return [{ versionId: "v1", fileId: "f1", size: 20, createdAt: "2026-11-08" }, { versionId: "v2", fileId: "f1", size: 30, createdAt: "2026-11-09" }];
       }, command: async (name) => name === "pick_download_destination" ? "/chosen/manual.pdf" : name === "start_download" ? "task1" : undefined });
     await h.login();
-    fireEvent.click(screen.getByRole("button", { name: "公共文件池" }));
+    fireEvent.click(screen.getByRole("button", { name: "文件" }));
     await screen.findByText("产品手册.pdf");
     expect(screen.queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "版本" }));
@@ -71,7 +73,7 @@ describe("real desktop workflows", () => {
     const transfer = { id: "t1", name: "报告.zip", direction: "download", versionId: "v1", state: "transferring", bytesCompleted: 50, totalBytes: 100, activeSources: ["server", "peer-a"] };
     const h = harness({ command: async (name) => name === "list_transfers" ? [transfer] : name === "pause_transfer" ? null : undefined });
     await h.login();
-    fireEvent.click(screen.getByRole("button", { name: "传输任务" }));
+    fireEvent.click(screen.getByRole("button", { name: "传输" }));
     await screen.findByText("报告.zip");
     expect(screen.getByRole("progressbar")).toHaveAttribute("value", "50");
     fireEvent.click(screen.getByRole("button", { name: "暂停" }));
@@ -87,7 +89,7 @@ describe("real desktop workflows", () => {
           throw new Error("用户名已存在");
       } });
     await h.login();
-    fireEvent.click(screen.getByRole("button", { name: "管理中心" }));
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
     fireEvent.change(await screen.findByLabelText("新用户名"), { target: { value: "colleague" } });
     fireEvent.change(screen.getByLabelText("初始密码"), { target: { value: "new-password" } });
     fireEvent.click(screen.getByRole("button", { name: "创建账号" }));
@@ -125,11 +127,11 @@ describe("real desktop workflows", () => {
     const h = harness({ request: async (_, path) => {
         if (path.includes("/files?groupId="))
           return published ? [{ id: "f1", name: "会议记录.txt", size: 20, createdBy: "u1", visibility: "group", currentVersionId: "v1", status: "active", createdAt: "2026-11-09" }] : [];
-      }, command: async (name) => name === "pick_upload_file" ? "/chosen/minutes.txt" : name === "start_upload" ? "upload-task" : undefined });
+      }, command: async (name) => name === "pick_upload_files" ? [{id:"minutes-handle",name:"minutes.txt",size:20}] : name === "start_attachment_upload" ? "upload-task" : undefined });
     await h.login();
     fireEvent.click(screen.getByRole("button", { name: "群文件" }));
     fireEvent.click(await screen.findByRole("button", { name: "上传文件" }));
-    await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("start_upload", { groupId: "g1", source: "/chosen/minutes.txt", fileId: null }));
+    await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("start_attachment_upload", { groupId: "g1", sourceHandle: "minutes-handle", clientAttachmentId:expect.any(String), fileId: null }));
     published = true;
     await h.emit("transfer.updated", { id: "upload-task", direction: "upload", name: "会议记录.txt", state: "completed", totalBytes: 20, bytesCompleted: 20, activeSources: [] });
     await screen.findByText("会议记录.txt");
@@ -175,21 +177,21 @@ describe("real desktop workflows", () => {
     await waitFor(() => expect(h.request).toHaveBeenCalledWith("POST", "/api/v1/groups/g1/members", { userId: "u2", role: "member" }));
   });
   it("shows settings failure without claiming a save", async () => {
-    const policy = { enabled: true, cacheQuotaBytes: 10000000000, maxConcurrent: 3, bandwidthLimitBps: 0, autostart: true };
+    const policy = { maxConcurrent: 3, bandwidthLimitBps: 0, autostart: true };
     const h = harness({ command: async (name) => {
-        if (name === "get_sharing_policy")
+        if (name === "get_transfer_preferences")
           return policy;
-        if (name === "set_sharing_policy")
+        if (name === "set_transfer_preferences")
           throw new Error("无法启用系统启动项");
       } });
     await h.login();
     fireEvent.click(screen.getByRole("button", { name: "小林 的账户选项" }));
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
-    fireEvent.click(await screen.findByLabelText("允许本机共享缓存分片"));
+    fireEvent.click(await screen.findByLabelText("登录系统时启动应用"));
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
     await screen.findByText("无法启用系统启动项");
-    expect(screen.queryByText("传输与共享设置已保存。")).not.toBeInTheDocument();
-    expect(h.invoke).toHaveBeenCalledWith("set_sharing_policy", { policy: { ...policy, enabled: false } });
+    expect(screen.queryByText("传输设置已保存。")).not.toBeInTheDocument();
+    expect(h.invoke).toHaveBeenCalledWith("set_transfer_preferences", { preferences: { ...policy, autostart: false } });
   });
   it("creates accounts and groups then reads filtered audit data", async () => {
     const h = harness({ admin: true, request: async (method, path) => {
@@ -201,17 +203,17 @@ describe("real desktop workflows", () => {
           return { events: [{ id: "event-1", action: "user.create", actorId: "u1", targetId: "new", createdAt: "2026-11-09" }], total: 1 };
       } });
     await h.login();
-    fireEvent.click(screen.getByRole("button", { name: "管理中心" }));
+    fireEvent.click(screen.getByRole("button", { name: "管理" }));
     fireEvent.change(await screen.findByLabelText("新用户名"), { target: { value: "新同事" } });
     fireEvent.change(screen.getByLabelText("初始密码"), { target: { value: "new-password" } });
     fireEvent.click(screen.getByRole("button", { name: "创建账号" }));
     await screen.findByText("账号已创建。请通过可信方式告知同事初始密码。");
     expect(screen.getByLabelText("初始密码")).toHaveValue("");
-    fireEvent.click(screen.getByRole("button", { name: "创建群组" }));
+    fireEvent.click(screen.getByRole("button", { name: "群组管理" }));
     fireEvent.change(screen.getByLabelText("群组名称"), { target: { value: "新项目" } });
     fireEvent.change(screen.getByLabelText("指定群主"), { target: { value: "u1" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "创建群组" })[1]);
-    await screen.findByText("群组已创建，群主可在群组成员中添加同事。");
+    fireEvent.click(screen.getByRole("button", { name: "创建群组" }));
+    await screen.findByText("群组已创建，可在下方管理成员和文件。");
     expect(h.request).toHaveBeenCalledWith("POST", "/api/v1/groups", { name: "新项目", ownerId: "u1" });
     fireEvent.click(screen.getByRole("button", { name: "审计记录" }));
     await screen.findByText("user.create");

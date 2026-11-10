@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestMigrationHistoryAndExistingDatabaseUpgrade(t *testing.T) {
 		}
 	}
 	var count int
-	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 6 {
+	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 8 {
 		t.Fatalf("migration history=%d err=%v", count, err)
 	}
 	if err := conn.QueryRow("SELECT count(*) FROM messages").Scan(&count); err != nil {
@@ -141,5 +142,87 @@ func TestAdministrationMigrationPreservesTransfersAndAuditAfterDeviceCascade(t *
 	defer rows.Close()
 	if rows.Next() {
 		t.Fatal("cascade left invalid foreign keys")
+	}
+}
+
+func TestPoolUpgradeDefaultsExistingFilesListedAndPreservesVersions(t *testing.T) {
+	conn, err := Open(filepath.Join(t.TempDir(), "pool-upgrade.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for _, name := range []string{"001_initial.sql", "002_groups_chat.sql", "003_files.sql", "004_transfer_audit.sql", "005_peers.sql", "006_administration_audit.sql"} {
+		raw, err := migrations.Files.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = conn.Exec(string(raw)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{`INSERT INTO users(id,username,password_hash,created_at,updated_at)VALUES('u','u','h','x','x')`, `INSERT INTO groups(id,name,created_by,created_at)VALUES('g','g','u','x')`, `INSERT INTO files(id,group_id,name,created_by,visibility,created_at)VALUES('f','g','display','u','pool','x')`, `INSERT INTO file_versions(id,file_id,created_by,name,size,sha256,chunk_size,status,created_at)VALUES('v','f','u','original',4,'hash',4,'published','x')`} {
+		if _, err = conn.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := migrations.Files.ReadFile("007_pool_sharing.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = conn.Exec(string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	var listed bool
+	var name string
+	var expiry sql.NullString
+	if err = conn.QueryRow(`SELECT f.listed,v.name,v.expires_at FROM files f JOIN file_versions v ON v.file_id=f.id WHERE f.id='f'`).Scan(&listed, &name, &expiry); err != nil || !listed || name != "original" || expiry.Valid {
+		t.Fatalf("upgrade %v %s %v %v", listed, name, expiry, err)
+	}
+}
+
+func TestProfilesUpgradeNumbersAvoidLegacyNumericNames(t *testing.T) {
+	conn, e := Open(filepath.Join(t.TempDir(), "profiles.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer conn.Close()
+	conn.Exec(`CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at TEXT NOT NULL)`)
+	for _, name := range []string{"001_initial.sql", "002_groups_chat.sql", "003_files.sql", "004_transfer_audit.sql", "005_peers.sql", "006_administration_audit.sql", "007_pool_sharing.sql"} {
+		raw, e := migrations.Files.ReadFile(name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = conn.Exec(string(raw)); e != nil {
+			t.Fatal(e)
+		}
+		conn.Exec(`INSERT INTO schema_migrations VALUES(?,'x')`, name)
+	}
+	for _, name := range []string{"10000000", "10000001", "alice"} {
+		if _, e = conn.Exec(`INSERT INTO users(id,username,password_hash,created_at,updated_at) VALUES(?,?,'h','2026-01-01','2026-01-01')`, name, name); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = ApplyMigrations(context.Background(), conn); e != nil {
+		t.Fatal(e)
+	}
+	var n int
+	if e = conn.QueryRow(`SELECT count(*) FROM profiles WHERE length(account_number)>=8 AND display_name<>'' AND account_number NOT IN (SELECT username FROM users)`).Scan(&n); e != nil || n != 3 {
+		t.Fatalf("number allocation n=%d err=%v", n, e)
+	}
+	var number string
+	conn.QueryRow(`SELECT account_number FROM profiles WHERE user_id='alice'`).Scan(&number)
+	if _, e = conn.Exec(`INSERT INTO users(id,username,password_hash,created_at,updated_at) VALUES('collision',?,'h','x','x')`, number); e == nil {
+		t.Fatal("numeric username stole an allocated login")
+	}
+	if _, e = conn.Exec(`UPDATE profiles SET account_number='123456789' WHERE user_id='alice'`); e == nil {
+		t.Fatal("number mutable")
+	}
+	if e = ApplyMigrations(context.Background(), conn); e != nil {
+		t.Fatal(e)
+	}
+	var after string
+	conn.QueryRow(`SELECT account_number FROM profiles WHERE user_id='alice'`).Scan(&after)
+	if after != number {
+		t.Fatal("number changed")
 	}
 }

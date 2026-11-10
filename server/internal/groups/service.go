@@ -20,6 +20,7 @@ var (
 )
 
 type Group struct {
+	IsMember  bool      `json:"isMember"`
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	CreatedBy string    `json:"createdBy"`
@@ -35,12 +36,13 @@ type Member struct {
 	JoinedAt time.Time `json:"joinedAt"`
 }
 type GroupService struct {
-	repo *Repository
-	auth *auth.AuthService
+	repo     *Repository
+	auth     *auth.AuthService
+	observer func(string, string)
 }
 
 func NewGroupService(conn *sql.DB, a *auth.AuthService) *GroupService {
-	return &GroupService{NewRepository(conn), a}
+	return &GroupService{repo: NewRepository(conn), auth: a}
 }
 func (s *GroupService) Create(ctx context.Context, actorID string, in CreateInput) (Group, error) {
 	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
@@ -53,7 +55,7 @@ func (s *GroupService) Create(ctx context.Context, actorID string, in CreateInpu
 	if in.OwnerID == "" {
 		in.OwnerID = actorID
 	}
-	g := Group{ID: uuid.NewString(), Name: in.Name, CreatedBy: actorID, CreatedAt: time.Now().UTC()}
+	g := Group{IsMember: in.OwnerID == actorID, ID: uuid.NewString(), Name: in.Name, CreatedBy: actorID, CreatedAt: time.Now().UTC()}
 	err := s.repo.create(ctx, actorID, in.OwnerID, g)
 	return g, err
 }
@@ -64,13 +66,28 @@ func (s *GroupService) List(ctx context.Context, actorID string) ([]Group, error
 	return s.repo.list(ctx, actorID)
 }
 func (s *GroupService) ListMembers(ctx context.Context, actorID, groupID string) ([]Member, error) {
-	if err := s.RequireMember(ctx, actorID, groupID); err != nil {
+	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
 		return nil, err
+	}
+	if direct, err := IsDirect(ctx, s.repo.db, groupID); err != nil {
+		return nil, err
+	} else if direct {
+		return nil, ErrForbidden
+	}
+	var allowed int
+	if err := s.repo.db.QueryRowContext(ctx, `SELECT count(*) FROM groups g WHERE g.id=? AND (EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=?) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.name='admin'))`, groupID, actorID, actorID).Scan(&allowed); err != nil {
+		return nil, err
+	}
+	if allowed == 0 {
+		return nil, ErrForbidden
 	}
 	return s.repo.members(ctx, groupID)
 }
 func (s *GroupService) RequireMember(ctx context.Context, actorID, groupID string) error {
 	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
+		return err
+	}
+	if _, err := RequireDirectMember(ctx, s.repo.db, actorID, groupID); err != nil {
 		return err
 	}
 	var count int
@@ -90,11 +107,21 @@ func (s *GroupService) AddMember(ctx context.Context, actorID, groupID, userID, 
 	if role != "member" && role != "owner" {
 		return ErrInvalidInput
 	}
-	return s.repo.changeMember(ctx, actorID, groupID, userID, role, false)
+	err := s.repo.changeMember(ctx, actorID, groupID, userID, role, false)
+	if err == nil && s.observer != nil {
+		s.observer(groupID, userID)
+	}
+	return err
 }
 func (s *GroupService) RemoveMember(ctx context.Context, actorID, groupID, userID string) error {
 	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
 		return err
 	}
-	return s.repo.changeMember(ctx, actorID, groupID, userID, "", true)
+	err := s.repo.changeMember(ctx, actorID, groupID, userID, "", true)
+	if err == nil && s.observer != nil {
+		s.observer(groupID, userID)
+	}
+	return err
 }
+
+func (s *GroupService) SetMemberObserver(observer func(string, string)) { s.observer = observer }

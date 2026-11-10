@@ -89,11 +89,12 @@ describe("desktop review regressions", () => {
     await h.emit("server.event", { type: "session.ready" });
     await waitFor(() => expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument());
     role = "owner";
-    fireEvent.click(within(screen.getByRole("complementary", { name: "我的群组" })).getByRole("button", { name: "刷新" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await screen.findByRole("button", { name: "删除" });
     fail = true;
     await h.emit("server.event", { type: "session.ready" });
     await waitFor(() => expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "返回聊天" }));
     fireEvent.click(screen.getByRole("button", { name: "成员" }));
     await screen.findByText("成员信息读取失败");
     expect(screen.queryByRole("button", { name: "保存成员" })).not.toBeInTheDocument();
@@ -134,7 +135,7 @@ describe("desktop review regressions", () => {
     fireEvent.click(screen.getByRole("button", { name: "下载所选版本" }));
     await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("pick_download_destination", { name: file.name }));
     current = "v3";
-    fireEvent.click(screen.getAllByRole("button", { name: "刷新" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await waitFor(() => expect(within(screen.getByLabelText("下载版本")).getByRole("option", { name: /当前版本/ })).toHaveValue("v3"));
     fireEvent.click(screen.getByRole("button", { name: "加入公共池" }));
     await waitFor(() => expect(within(screen.getByRole("region", { name: `${file.name}的版本` })).getByText(/长期保留/)).toBeInTheDocument());
@@ -158,7 +159,7 @@ describe("desktop review regressions", () => {
     height = 2100;
     await h.emit("server.event", { type: "message.created", groupId: "g1", message: msg("remote", 31, "新消息") });
     expect(scroll.scrollTop).toBe(600);
-    fireEvent.click(screen.getByRole("button", { name: "有新消息，回到最新" }));
+    fireEvent.click(screen.getByRole("button", { name: "新消息 ↓" }));
     expect(scroll.scrollTop).toBe(1700);
     scroll.scrollTop = 500;
     fireEvent.scroll(scroll);

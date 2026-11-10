@@ -19,17 +19,20 @@ type FileHandlers struct{ Service *files.FileService }
 func NewFileHandlers(s *files.FileService) *FileHandlers { return &FileHandlers{s} }
 func (h *FileHandlers) Register(mux *http.ServeMux, a *auth.AuthService) {
 	routes := map[string]http.HandlerFunc{
-		"PUT /api/v1/uploads/{uploadID}/chunks/{index}":  h.PutChunk,
-		"POST /api/v1/uploads/{uploadID}/complete":       h.Complete,
-		"GET /api/v1/files/{versionID}/chunks/{hash}":    h.Chunk,
-		"POST /api/v1/files/uploads":                     h.StartUpload,
-		"GET /api/v1/uploads/{uploadID}":                 h.GetUpload,
-		"GET /api/v1/files":                              h.List,
-		"GET /api/v1/files/{fileID}/versions":            h.Versions,
-		"POST /api/v1/files/{fileID}/versions":           h.CreateVersion,
-		"GET /api/v1/file-versions/{versionID}/manifest": h.Manifest,
-		"POST /api/v1/files/{fileID}/promote":            h.Promote,
-		"DELETE /api/v1/files/{fileID}":                  h.Delete,
+		"PATCH /api/v1/files/{fileID}":                    h.EditPool,
+		"GET /api/v1/sharing-policies/{scope}/{targetID}": h.GetSharingPolicy,
+		"PUT /api/v1/sharing-policies/{scope}/{targetID}": h.SetSharingPolicy,
+		"PUT /api/v1/uploads/{uploadID}/chunks/{index}":   h.PutChunk,
+		"POST /api/v1/uploads/{uploadID}/complete":        h.Complete,
+		"GET /api/v1/files/{versionID}/chunks/{hash}":     h.Chunk,
+		"POST /api/v1/files/uploads":                      h.StartUpload,
+		"GET /api/v1/uploads/{uploadID}":                  h.GetUpload,
+		"GET /api/v1/files":                               h.List,
+		"GET /api/v1/files/{fileID}/versions":             h.Versions,
+		"POST /api/v1/files/{fileID}/versions":            h.CreateVersion,
+		"GET /api/v1/file-versions/{versionID}/manifest":  h.Manifest,
+		"POST /api/v1/files/{fileID}/promote":             h.Promote,
+		"DELETE /api/v1/files/{fileID}":                   h.Delete,
 	}
 	for path, handler := range routes {
 		mux.Handle(path, RequireAuth(a, handler))
@@ -188,4 +191,37 @@ func (h *FileHandlers) Chunk(w http.ResponseWriter, r *http.Request) {
 			slog.Error("record server transfer", "error", err)
 		}
 	}
+}
+
+func (h *FileHandlers) EditPool(w http.ResponseWriter, r *http.Request) {
+	var in files.PoolEdit
+	if err := decodeJSONLimit(r, &in, 4096); err != nil {
+		fileError(w, files.ErrInvalidInput)
+		return
+	}
+	if err := h.Service.EditPool(r.Context(), UserIDFromContext(r.Context()), r.PathValue("fileID"), in); err != nil {
+		fileError(w, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+func (h *FileHandlers) GetSharingPolicy(w http.ResponseWriter, r *http.Request) {
+	p, err := h.Service.GetSharingPolicy(r.Context(), UserIDFromContext(r.Context()), r.PathValue("scope"), r.PathValue("targetID"))
+	if err != nil {
+		fileError(w, err)
+		return
+	}
+	writeJSON(w, 200, p)
+}
+func (h *FileHandlers) SetSharingPolicy(w http.ResponseWriter, r *http.Request) {
+	var in files.SharingPolicy
+	if err := decodeJSONLimit(r, &in, 4096); err != nil {
+		fileError(w, files.ErrInvalidInput)
+		return
+	}
+	if err := h.Service.SetSharingPolicy(r.Context(), UserIDFromContext(r.Context()), r.PathValue("scope"), r.PathValue("targetID"), in); err != nil {
+		fileError(w, err)
+		return
+	}
+	w.WriteHeader(204)
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-defer-update"
+description = "Enables the defer_update command without any pre-configured scope."
+commands.allow = ["defer_update"]
+
+[[permission]]
+identifier = "deny-defer-update"
+description = "Denies the defer_update command without any pre-configured scope."
+commands.deny = ["defer_update"]

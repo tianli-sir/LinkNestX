@@ -65,7 +65,7 @@ func (r *Repository) create(ctx context.Context, actorID, ownerID string, g Grou
 	return tx.Commit()
 }
 func (r *Repository) list(ctx context.Context, actorID string) ([]Group, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT g.id,g.name,g.created_by,g.created_at FROM groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=? ORDER BY g.created_at,g.id`, actorID)
+	rows, err := r.db.QueryContext(ctx, `SELECT g.id,g.name,g.created_by,g.created_at,EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=?) FROM groups g WHERE NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=g.id) AND (EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=?) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.name='admin')) ORDER BY g.created_at,g.id`, actorID, actorID, actorID)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (r *Repository) list(ctx context.Context, actorID string) ([]Group, error) 
 	for rows.Next() {
 		var g Group
 		var at string
-		if err := rows.Scan(&g.ID, &g.Name, &g.CreatedBy, &at); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.CreatedBy, &at, &g.IsMember); err != nil {
 			return nil, err
 		}
 		g.CreatedAt, err = time.Parse(time.RFC3339Nano, at)
@@ -114,6 +114,11 @@ func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID,
 	defer tx.Rollback()
 	if err := activeActor(ctx, tx, actorID); err != nil {
 		return err
+	}
+	if direct, e := IsDirect(ctx, tx, groupID); e != nil {
+		return e
+	} else if direct {
+		return ErrForbidden
 	}
 	admin, err := isAdmin(ctx, tx, actorID)
 	if err != nil {

@@ -49,6 +49,8 @@ type LoginInput struct {
 	DeviceID string `json:"deviceId,omitempty"`
 }
 type Session struct {
+	ClientType   string    `json:"-"`
+	CSRFToken    string    `json:"-"`
 	ID           string    `json:"id,omitempty"`
 	AccessToken  string    `json:"accessToken"`
 	RefreshToken string    `json:"refreshToken"`
@@ -178,6 +180,12 @@ func validateCreateUser(in CreateUserInput) (CreateUserInput, error) {
 }
 
 func (s *AuthService) Login(ctx context.Context, in LoginInput) (Session, error) {
+	return s.login(ctx, in, "native")
+}
+func (s *AuthService) LoginWeb(ctx context.Context, in LoginInput) (Session, error) {
+	return s.login(ctx, in, "web")
+}
+func (s *AuthService) login(ctx context.Context, in LoginInput, kind string) (Session, error) {
 	if len(in.Username) > 256 || len(in.Email) > 320 || len(in.Password) > MaxPasswordBytes || len(in.DeviceID) > 64 || !utf8.ValidString(in.Password) {
 		return Session{}, ErrInvalidInput
 	}
@@ -202,7 +210,7 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (Session, error)
 	if err != nil {
 		return Session{}, err
 	}
-	return s.newSession(ctx, u, device, hash)
+	return s.newSession(ctx, u, device, hash, kind)
 }
 
 func (s *AuthService) prepareSession(u User, device string) (Session, error) {
@@ -215,21 +223,32 @@ func (s *AuthService) prepareSession(u User, device string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	return Session{ID: id, AccessToken: access, RefreshToken: refresh, ExpiresAt: s.now().UTC().Add(s.refreshTTL), User: u, DeviceID: device}, nil
+	csrf, err := randomToken()
+	if err != nil {
+		return Session{}, err
+	}
+	return Session{ClientType: "native", CSRFToken: csrf, ID: id, AccessToken: access, RefreshToken: refresh, ExpiresAt: s.now().UTC().Add(s.refreshTTL), User: u, DeviceID: device}, nil
 }
 
-func (s *AuthService) newSession(ctx context.Context, u User, device, expectedHash string) (Session, error) {
+func (s *AuthService) newSession(ctx context.Context, u User, device, expectedHash, kind string) (Session, error) {
 	session, err := s.prepareSession(u, device)
 	if err != nil {
 		return Session{}, err
 	}
+	session.ClientType = kind
 	if err := s.repo.createSession(ctx, session, s.now().UTC(), expectedHash); err != nil {
 		return Session{}, err
 	}
 	return session, nil
 }
 
-func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (Session, error) {
+func (s *AuthService) Refresh(ctx context.Context, token string) (Session, error) {
+	return s.refresh(ctx, token, "native")
+}
+func (s *AuthService) RefreshWeb(ctx context.Context, token string) (Session, error) {
+	return s.refresh(ctx, token, "web")
+}
+func (s *AuthService) refresh(ctx context.Context, refreshToken, kind string) (Session, error) {
 	if len(refreshToken) > 1024 {
 		return Session{}, ErrInvalidInput
 	}
@@ -242,6 +261,13 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (Session
 	}
 	if err != nil {
 		return Session{}, err
+	}
+	var storedKind string
+	if err = s.repo.db.QueryRowContext(ctx, `SELECT client_type FROM sessions WHERE id=?`, id).Scan(&storedKind); err != nil {
+		return Session{}, err
+	}
+	if storedKind != kind {
+		return Session{}, ErrUnauthorized
 	}
 	if revoked {
 		return Session{}, ErrSessionRevoked
@@ -260,6 +286,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (Session
 	if err != nil {
 		return Session{}, err
 	}
+	session.ClientType = storedKind
 	if err := s.repo.rotateSession(ctx, id, hashToken(refreshToken), session, s.now().UTC()); err != nil {
 		return Session{}, err
 	}
@@ -289,8 +316,10 @@ type accessClaims struct {
 }
 
 func (s *AuthService) issueAccess(u User, sid, device string) (string, error) {
-	now := s.now().UTC()
-	c := accessClaims{Sub: u.ID, SID: sid, DeviceID: device, Exp: now.Add(s.accessTTL).Unix(), Iat: now.Unix(), Typ: "access"}
+	return s.issueAccessUntil(u, sid, device, s.now().UTC().Add(s.accessTTL))
+}
+func (s *AuthService) issueAccessUntil(u User, sid, device string, expiry time.Time) (string, error) {
+	c := accessClaims{Sub: u.ID, SID: sid, DeviceID: device, Exp: expiry.Unix(), Iat: s.now().UTC().Unix(), Typ: "access"}
 	return signJWT(c, s.signingKey)
 }
 func signJWT(payload any, key []byte) (string, error) {
@@ -390,6 +419,7 @@ type principal struct {
 	sessionID   string
 	deviceID    string
 	accessToken string
+	clientType  string
 }
 
 func (s *AuthService) AuthenticateContext(ctx context.Context, token string) (context.Context, error) {
@@ -404,7 +434,11 @@ func (s *AuthService) AuthenticateContext(ctx context.Context, token string) (co
 	if user.Disabled {
 		return nil, ErrDisabledAccount
 	}
-	return context.WithValue(ctx, principalKey{}, principal{user: user, sessionID: sid, deviceID: did, accessToken: token}), nil
+	var kind string
+	if err = s.repo.db.QueryRowContext(ctx, `SELECT client_type FROM sessions WHERE id=?`, sid).Scan(&kind); err != nil {
+		return nil, err
+	}
+	return context.WithValue(ctx, principalKey{}, principal{user: user, sessionID: sid, deviceID: did, accessToken: token, clientType: kind}), nil
 }
 
 func UserFromContext(ctx context.Context) (User, bool) {
@@ -457,3 +491,35 @@ func (s *AuthService) ValidateActor(ctx context.Context, actorID string) error {
 
 // Database is used by the composed server to share audit storage.
 func (s *AuthService) Database() *sql.DB { return s.repo.db }
+
+func ClientTypeFromContext(ctx context.Context) string {
+	actor, _ := ctx.Value(principalKey{}).(principal)
+	return actor.clientType
+}
+func (s *AuthService) AuthenticateWeb(ctx context.Context, token string) (context.Context, Session, error) {
+	if len(token) > 1024 || token == "" {
+		return nil, Session{}, ErrUnauthorized
+	}
+	id, uid, device, exp, revoked, err := s.repo.findSession(ctx, hashToken(token))
+	if err != nil || revoked || !s.now().Before(exp) {
+		return nil, Session{}, ErrUnauthorized
+	}
+	var kind, csrf string
+	if err = s.repo.db.QueryRowContext(ctx, `SELECT client_type,csrf_token FROM sessions WHERE id=?`, id).Scan(&kind, &csrf); err != nil || kind != "web" {
+		return nil, Session{}, ErrUnauthorized
+	}
+	u, err := s.User(ctx, uid)
+	if err != nil || u.Disabled {
+		return nil, Session{}, ErrUnauthorized
+	}
+	// This internal credential never leaves the server. Browser authorization
+	// follows the cookie session's actual expiry, while ValidateActor continues
+	// to recheck persisted expiry, revocation and account state on every use.
+	// Native login/refresh still issue the separate 15-minute bearer lifetime.
+	access, err := s.issueAccessUntil(u, id, device, exp)
+	if err != nil {
+		return nil, Session{}, err
+	}
+	verified, err := s.AuthenticateContext(ctx, access)
+	return verified, Session{ID: id, User: u, DeviceID: device, ExpiresAt: exp, CSRFToken: csrf, ClientType: kind}, err
+}

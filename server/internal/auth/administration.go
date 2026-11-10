@@ -306,7 +306,7 @@ func (s *AuthService) AdminUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT u.id,u.username,u.email,u.disabled,u.must_change_password,u.created_at,r.name FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id ORDER BY lower(u.username),u.id,r.name`)
+	rows, err := tx.QueryContext(ctx, `SELECT u.id,u.username,u.email,u.disabled,u.must_change_password,u.created_at,r.name,p.account_number,p.display_name,p.avatar IS NOT NULL FROM users u JOIN profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id ORDER BY lower(u.username),u.id,r.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -316,8 +316,12 @@ func (s *AuthService) AdminUsers(ctx context.Context) ([]User, error) {
 		var user User
 		var created string
 		var role sql.NullString
-		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Disabled, &user.MustChangePassword, &created, &role); err != nil {
+		var avatar bool
+		if err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Disabled, &user.MustChangePassword, &created, &role, &user.AccountNumber, &user.DisplayName, &avatar); err != nil {
 			return nil, err
+		}
+		if avatar {
+			user.AvatarURL = "/api/v1/profiles/" + user.ID + "/avatar"
 		}
 		if len(users) == 0 || users[len(users)-1].ID != user.ID {
 			user.CreatedAt, err = time.Parse(time.RFC3339Nano, created)

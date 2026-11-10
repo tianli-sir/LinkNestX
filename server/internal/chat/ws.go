@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/linknestx/linknestx/server/internal/auth"
 	"github.com/linknestx/linknestx/server/internal/groups"
@@ -22,6 +23,10 @@ type ClientEvent struct {
 	Body            string `json:"body,omitempty"`
 }
 type Event struct {
+	ConversationID  string   `json:"conversationId,omitempty"`
+	MessageIDs      []string `json:"messageIds,omitempty"`
+	recipient       string
+	EventID         string   `json:"eventId,omitempty"`
 	Type            string   `json:"type"`
 	RequestID       string   `json:"requestId,omitempty"`
 	Code            string   `json:"code,omitempty"`
@@ -186,6 +191,9 @@ func (h *Hub) allowed(p *peer, e Event) bool {
 		_ = p.conn.Close()
 		return false
 	}
+	if e.recipient != "" && e.recipient != p.userID {
+		return false
+	}
 	if e.GroupID != "" && h.service.groups.RequireMember(p.ctx, p.userID, e.GroupID) != nil {
 		return false
 	}
@@ -243,5 +251,42 @@ func (h *Hub) write(p *peer) {
 				return
 			}
 		}
+	}
+}
+
+// A removed member receives only their own permission-change notice, never chat content.
+func (h *Hub) MembershipChanged(group, user string) {
+	id := uuid.NewString()
+	for _, p := range h.snapshot() {
+		e := Event{Type: "membership.changed", EventID: id, GroupID: group, UserID: user}
+		if p.userID == user {
+			e.GroupID = ""
+		}
+		h.send(p, e)
+	}
+}
+func (h *Hub) FilesChanged() {
+	id := uuid.NewString()
+	for _, p := range h.snapshot() {
+		h.send(p, Event{Type: "files.changed", EventID: id})
+	}
+}
+
+func (h *Hub) NotifyUsers(ids []string, e Event) {
+	for _, p := range h.snapshot() {
+		for _, id := range ids {
+			if p.userID == id {
+				e.recipient = id
+				h.send(p, e)
+				break
+			}
+		}
+	}
+}
+func (h *Hub) NotifyConversation(id string, e Event) {
+	e.GroupID = id
+	e.ConversationID = id
+	for _, p := range h.snapshot() {
+		h.send(p, e)
 	}
 }

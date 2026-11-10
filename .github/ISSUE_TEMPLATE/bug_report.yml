@@ -1,0 +1,29 @@
+name: Bug report / 问题反馈
+description: Report a reproducible problem / 反馈可复现的问题
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove passwords, tokens, internal addresses and employee data from attachments.
+        请先移除日志和截图中的密码、令牌、内网地址及员工信息。
+  - type: input
+    id: environment
+    attributes:
+      label: Version and environment / 版本与环境
+      description: LinkNestX version, OS, architecture, and desktop or Web.
+      placeholder: "0.2.0 · macOS · ARM64 · desktop"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Include the expected result and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots / 日志或截图
+      description: Only attach information you are comfortable publishing.

@@ -107,6 +107,28 @@ async fn chunk(
         _ => Ok("abc"),
     }
 }
+async fn streamed_chunk(
+    state: State<Mock>,
+    path: Path<(String, String)>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if state.0.mode.load(Ordering::SeqCst) == 13 {
+        let stream = futures_util::stream::unfold(0usize, |index| async move {
+            if index == 3 {
+                return None;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            Some((
+                Ok::<_, std::io::Error>(Bytes::from_static(&b"abc"[index..index + 1])),
+                index + 1,
+            ))
+        });
+        axum::body::Body::from_stream(stream).into_response()
+    } else {
+        chunk(state, path, headers).await.into_response()
+    }
+}
 async fn begin(State(s): State<Mock>, Json(body): Json<Value>) -> Json<Value> {
     if s.mode.load(Ordering::SeqCst) == 8 {
         s.blocked.store(8, Ordering::SeqCst);
@@ -119,7 +141,10 @@ async fn begin(State(s): State<Mock>, Json(body): Json<Value>) -> Json<Value> {
 }
 async fn upload(State(s): State<Mock>, body: Bytes) -> StatusCode {
     assert_eq!(&body[..], b"abc");
-    s.puts.fetch_add(1, Ordering::SeqCst);
+    let attempt = s.puts.fetch_add(1, Ordering::SeqCst);
+    if s.mode.load(Ordering::SeqCst) == 14 && attempt == 0 {
+        return StatusCode::UNAUTHORIZED;
+    }
     StatusCode::NO_CONTENT
 }
 async fn upload_status(State(s): State<Mock>) -> Json<Value> {
@@ -168,7 +193,7 @@ impl Harness {
             .route("/api/v1/auth/refresh", post(refresh))
             .route("/api/v1/me", get(me))
             .route("/api/v1/file-versions/version/manifest", get(get_manifest))
-            .route("/api/v1/files/{version}/chunks/{hash}", get(chunk))
+            .route("/api/v1/files/{version}/chunks/{hash}", get(streamed_chunk))
             .route("/api/v1/files/uploads", post(begin))
             .route("/api/v1/uploads/upload", get(upload_status))
             .route("/api/v1/uploads/upload/chunks/0", put(upload))
@@ -631,4 +656,76 @@ async fn shutdown_interrupts_final_download_permission_check() {
         .unwrap();
     assert_eq!(h.terminal(&id).await.state, TaskState::Paused);
     assert!(!std::path::Path::new(&h.destination()).exists());
+}
+
+#[tokio::test]
+async fn streamed_upload_replays_after_401_and_counts_attempts_but_credits_once() {
+    let h = Harness::new().await;
+    h.mock.mode.store(14, Ordering::SeqCst);
+    let source = h._root.path().join("send.txt");
+    std::fs::write(&source, b"abc").unwrap();
+    let id = h
+        .service
+        .start_upload("group".into(), source.to_string_lossy().into(), None)
+        .await
+        .unwrap();
+    let snapshot = h.terminal(&id).await;
+    assert_eq!(snapshot.state, TaskState::Completed);
+    assert_eq!(h.mock.puts.load(Ordering::SeqCst), 2);
+    assert_eq!(snapshot.metrics.network_bytes, 6);
+    assert_eq!(snapshot.metrics.credited_network_bytes, 3);
+    assert_eq!(snapshot.metrics.current_bytes_per_second, 0.0);
+    h.service.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn partial_http_payload_is_visible_before_chunk_ack_and_cache_is_not_network() {
+    let h = Harness::new().await;
+    h.mock.mode.store(13, Ordering::SeqCst);
+    let id = h
+        .service
+        .start_download(
+            "version".into(),
+            h._root.path().join("streamed.txt").to_string_lossy().into(),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let t = h
+                .service
+                .list()
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|t| t.id == id)
+                .unwrap();
+            if t.metrics.network_bytes > 0 {
+                assert!(t.metrics.network_bytes < 3);
+                assert_eq!(t.bytes_completed, 0);
+                assert!(t.metrics.current_bytes_per_second > 0.0);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let first = h.terminal(&id).await;
+    assert_eq!(first.metrics.network_bytes, 3);
+    assert_eq!(first.metrics.credited_network_bytes, 3);
+    let cached = h
+        .service
+        .start_download(
+            "version".into(),
+            h._root.path().join("cached.txt").to_string_lossy().into(),
+        )
+        .await
+        .unwrap();
+    let second = h.terminal(&cached).await;
+    assert_eq!(second.state, TaskState::Completed);
+    assert_eq!(second.metrics.network_bytes, 0);
+    assert_eq!(second.metrics.credited_network_bytes, 0);
+    assert_eq!(second.metrics.cache_bytes, 3);
+    assert_eq!(second.metrics.average_bytes_per_second, None);
+    h.service.shutdown().await.unwrap();
 }

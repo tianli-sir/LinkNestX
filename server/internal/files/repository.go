@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/groups"
 )
 
 func recordAudit(ctx context.Context, tx *sql.Tx, actor, action, file, version string, at time.Time) error {
@@ -39,7 +40,15 @@ func (s *FileService) List(ctx context.Context, actorID string, in ListInput) ([
 		where = "f.visibility=?"
 		arg = "pool"
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT f.id,f.group_id,f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256 FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE `+where+` AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR v.expires_at>?) ORDER BY f.created_at,f.id`, arg, stamp(s.now()))
+	isAdmin, err := admin(ctx, tx, actorID)
+	if err != nil {
+		return nil, err
+	}
+	if !isAdmin {
+		where += " AND (f.visibility<>'pool' OR f.listed=1)"
+	}
+	where += " AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id AND ? IN(d.pair_low,d.pair_high)))"
+	rows, err := tx.QueryContext(ctx, `SELECT f.id,f.group_id,f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE `+where+` AND f.deleted_at IS NULL AND v.status='published' AND (v.expires_at IS NULL OR v.expires_at>?) ORDER BY f.created_at,f.id`, arg, actorID, stamp(s.now()))
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +70,7 @@ func scanFile(row scanner) (File, error) {
 	var f File
 	var at string
 	var expires sql.NullString
-	err := row.Scan(&f.ID, &f.GroupID, &f.Name, &f.CreatedBy, &f.Visibility, &f.CurrentVersionID, &at, &expires, &f.Status, &f.Size, &f.SHA256)
+	err := row.Scan(&f.ID, &f.GroupID, &f.Name, &f.CreatedBy, &f.Visibility, &f.CurrentVersionID, &at, &expires, &f.Status, &f.Size, &f.SHA256, &f.Listed)
 	if err != nil {
 		return f, err
 	}
@@ -187,6 +196,11 @@ func (s *FileService) PromoteToPool(ctx context.Context, actorID, fileID string)
 	if err != nil {
 		return File{}, err
 	}
+	if direct, e := groups.IsDirect(ctx, tx, f.groupID); e != nil {
+		return File{}, e
+	} else if direct {
+		return File{}, ErrForbidden
+	}
 	if _, err = s.authorizedVersion(ctx, tx, actorID, f.current); err != nil {
 		return File{}, err
 	}
@@ -199,11 +213,11 @@ func (s *FileService) PromoteToPool(ctx context.Context, actorID, fileID string)
 	if err = recordAudit(ctx, tx, actorID, "file.promoted", fileID, f.current, s.now()); err != nil {
 		return File{}, err
 	}
-	result, err := scanFile(tx.QueryRowContext(ctx, `SELECT f.id,f.group_id,f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256 FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE f.id=?`, fileID))
+	result, err := scanFile(tx.QueryRowContext(ctx, `SELECT f.id,f.group_id,f.name,f.created_by,f.visibility,f.current_version_id,f.created_at,v.expires_at,v.status,v.size,v.sha256,f.listed FROM files f JOIN file_versions v ON v.id=f.current_version_id WHERE f.id=?`, fileID))
 	if err != nil {
 		return File{}, err
 	}
-	return result, tx.Commit()
+	return result, s.commitChange(tx)
 }
 func (s *FileService) Delete(ctx context.Context, actorID, fileID string) error {
 	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
@@ -237,5 +251,5 @@ func (s *FileService) Delete(ctx context.Context, actorID, fileID string) error 
 	if err = recordAudit(ctx, tx, actorID, "file.deleted", fileID, f.current, at); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return s.commitChange(tx)
 }

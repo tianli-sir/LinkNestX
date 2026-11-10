@@ -17,13 +17,13 @@ type scanner interface{ Scan(...any) error }
 
 // file_versions.status retains the lifecycle cause when cleanup also marks the
 // logical file unavailable; automatic expiry must not become explicit deletion.
-const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN 'available' WHEN v.status='expired' THEN 'expired' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END)`
+const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN CASE WHEN f.visibility='pool' AND f.listed=0 THEN 'unlisted' ELSE 'available' END WHEN v.status='expired' THEN 'expired' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END),(SELECT name FROM file_versions WHERE id=messages.file_version_id AND messages.expired_at IS NULL),(SELECT size FROM file_versions WHERE id=messages.file_version_id AND messages.expired_at IS NULL)`
 
 func scanMessage(row scanner) (Message, error) {
 	var m Message
 	var created string
 	var expired sql.NullString
-	if err := row.Scan(&m.ID, &m.Sequence, &m.GroupID, &m.SenderID, &m.ClientMessageID, &m.Body, &created, &expired, &m.FileID, &m.FileVersionID, &m.AttachmentStatus); err != nil {
+	if err := row.Scan(&m.ID, &m.Sequence, &m.GroupID, &m.SenderID, &m.ClientMessageID, &m.Body, &created, &expired, &m.FileID, &m.FileVersionID, &m.AttachmentStatus, &m.AttachmentName, &m.AttachmentSize); err != nil {
 		return m, err
 	}
 	var err error
@@ -38,10 +38,14 @@ func scanMessage(row scanner) (Message, error) {
 		}
 		m.ExpiredAt = &at
 	}
+	m.ConversationID = m.GroupID
 	m.Cursor = encodeCursor(m.GroupID, m.Sequence)
 	return m, nil
 }
 func memberInTransaction(ctx context.Context, tx *sql.Tx, actorID, groupID string) error {
+	if _, err := groups.RequireDirectMember(ctx, tx, actorID, groupID); err != nil {
+		return err
+	}
 	var count int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM group_members m JOIN users u ON u.id=m.user_id JOIN sessions s ON s.user_id=u.id WHERE m.group_id=? AND m.user_id=? AND u.disabled=0 AND u.must_change_password=0 AND s.id=? AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday('now')`, groupID, actorID, auth.SessionIDFromContext(ctx)).Scan(&count)
 	if err != nil {
@@ -59,6 +63,9 @@ func (r *Repository) append(ctx context.Context, m Message) (Message, bool, erro
 	}
 	defer tx.Rollback()
 	if err := memberInTransaction(ctx, tx, m.SenderID, m.GroupID); err != nil {
+		return Message{}, false, err
+	}
+	if err := groups.RequireSend(ctx, tx, m.SenderID, m.GroupID); err != nil {
 		return Message{}, false, err
 	}
 	existing, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE sender_id=? AND client_message_id=?`, m.SenderID, m.ClientMessageID))
@@ -119,7 +126,12 @@ func (r *Repository) expire(ctx context.Context, before, now time.Time) (int64, 
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	_, err = r.db.ExecContext(ctx, `DELETE FROM message_reads WHERE message_id IN(SELECT id FROM messages WHERE expired_at IS NOT NULL)`)
+	return n, err
 }
 
 func (r *Repository) sharedGroups(ctx context.Context, a, b string) ([]string, error) {

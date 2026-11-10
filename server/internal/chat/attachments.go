@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/groups"
 )
 
 type AttachmentInput struct{ GroupID, ClientMessageID, FileID, FileVersionID, Name string }
@@ -63,7 +64,20 @@ func (s *ChatService) AppendAttachment(ctx context.Context, actorID string, in A
 		return Message{}, err
 	}
 	m.Cursor = encodeCursor(m.GroupID, m.Sequence)
+	if err = tx.QueryRowContext(ctx, `SELECT name,size FROM file_versions WHERE id=?`, in.FileVersionID).Scan(&m.AttachmentName, &m.AttachmentSize); err != nil {
+		return Message{}, err
+	}
+	var listed bool
+	if err = tx.QueryRowContext(ctx, `SELECT listed FROM files WHERE id=?`, in.FileID).Scan(&listed); err != nil {
+		return Message{}, err
+	}
+	if !listed {
+		status = "unlisted"
+	}
 	if err = tx.Commit(); err != nil {
+		return Message{}, err
+	}
+	if err = s.project(ctx, actorID, &m); err != nil {
 		return Message{}, err
 	}
 	if s.hub != nil {
@@ -77,6 +91,9 @@ func (s *ChatService) AppendAttachment(ctx context.Context, actorID string, in A
 // publication callback rechecks file management, and the immutable file/version
 // and original group association are verified before any message is committed.
 func attachmentPublisherInTransaction(ctx context.Context, tx *sql.Tx, actorID, groupID string) error {
+	if err := groups.RequireSend(ctx, tx, actorID, groupID); err != nil {
+		return err
+	}
 	err := memberInTransaction(ctx, tx, actorID, groupID)
 	if err == nil {
 		return nil

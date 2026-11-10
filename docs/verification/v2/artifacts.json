@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "deployed": false,
+  "developerIdSigned": false,
+  "notarized": false,
+  "macosAdHocSealVerified": true,
+  "windows02Built": false,
+  "artifacts": [
+    {
+      "kind": "macosInstaller",
+      "path": ".cache/next-release/LinkNestX-0.2.0-macos-aarch64.zip",
+      "size": 10572626,
+      "sha256": "68311275ce3dac16aab005c3c9f5dbf5ce7b756e6208bfdf9b2d3f8bb0e454d9"
+    },
+    {
+      "kind": "linuxServer",
+      "path": ".cache/next-release/delivery-0.2.0/linknestx-server",
+      "size": 22136684,
+      "sha256": "05b01b9d0f6019716db74bf6ccdd53afa0e7e65adff68b4426c01c3c680384a9"
+    },
+    {
+      "kind": "macosExecutable",
+      "path": ".cache/next-release/payloads/macos-0.2.0/LinkNestX.app/Contents/MacOS/linknestx",
+      "size": 31581120,
+      "sha256": "2389b8728ff8b114a9bf8191127dcece45fd655ea929f318682b0a858b80cb6b"
+    }
+  ]
+}

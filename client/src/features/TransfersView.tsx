@@ -1,89 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { apiErrorMessage } from "../api/rest";
-import { EmptyState } from "../components/EmptyState";
-import { useDesktop, useDesktopEvent } from "../runtime/DesktopProvider";
-import { ErrorNotice, Loading, sizeLabel } from "./shared";
-export type TransferState = "queued" | "hashing" | "transferring" | "paused" | "verifying" | "completed" | "failed";
-export interface Transfer {
-  id: string;
-  direction: "upload" | "download";
-  versionId: string;
-  name: string;
-  state: TransferState;
-  bytesCompleted: number;
-  totalBytes: number;
-  activeSources: string[];
-  error?: string;
-}
-const labels: Record<TransferState, string> = { queued: "等待中", hashing: "正在计算校验", transferring: "传输中", paused: "已暂停", verifying: "正在校验", completed: "已完成", failed: "失败" };
-export const activeTransfer = (task: Transfer) => ["queued", "hashing", "transferring", "verifying"].includes(task.state);
-export function useTransfers() {
-  const { desktop } = useDesktop();
-  const [tasks, setTasks] = useState<Transfer[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const revision = useRef(0);
-  const updates = useRef(new Map<string, Transfer>());
-  useDesktopEvent("transfer.updated", (task: Transfer) => {
-    updates.current.set(task.id, task);
-    setTasks(previous => {
-      const merged = new Map(previous.map(t => [t.id, t]));
-      merged.set(task.id, task);
-      return [...merged.values()];
-    });
-  });
-  const refresh = useCallback(async () => {
-    const run = ++revision.current;
-    updates.current.clear();
-    setLoading(true);
-    setError("");
-    try {
-      const list = await desktop.invoke<Transfer[]>("list_transfers");
-      if (run !== revision.current)
-        return;
-      const merged = new Map(list.map(t => [t.id, t]));
-      updates.current.forEach((task, id) => merged.set(id, task));
-      setTasks([...merged.values()]);
-    }
-    catch (error) {
-      if (run === revision.current)
-        setError(apiErrorMessage(error));
-    }
-    finally {
-      if (run === revision.current)
-        setLoading(false);
-    }
-  }, [desktop]);
-  useEffect(() => {
-    void refresh();
-    return () => {
-      revision.current++;
-    };
-  }, [refresh]);
-  return { tasks, error, loading, refresh };
-}
-export function TransfersView({ queue }: {
-  queue: ReturnType<typeof useTransfers>;
-}) {
-  const { desktop } = useDesktop();
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  async function action(task: Transfer) {
-    setBusy(task.id);
-    setError("");
-    try {
-      await desktop.invoke(task.state === "paused" || task.state === "failed" ? "resume_transfer" : "pause_transfer", { taskId: task.id });
-      await queue.refresh();
-    }
-    catch (error) {
-      setError(apiErrorMessage(error));
-    }
-    finally {
-      setBusy("");
-    }
-  }
-  return <section className="ln-feature"><div className="ln-toolbar"><p className="ln-muted">窗口关闭后，已启动的任务仍可在后台运行。</p><button className="ln-button ln-button-secondary" onClick={() => void queue.refresh()}>刷新</button></div><ErrorNotice error={queue.error} retry={() => void queue.refresh()}/><ErrorNotice error={error}/>{queue.loading && <Loading />}
-  {!queue.loading && !queue.error && queue.tasks.length === 0 && <EmptyState icon="transfers" title="暂无传输任务" description="在群文件或公共文件池中选择文件，即可开始下载。"/>}
-  <ul className="ln-transfer-list">{queue.tasks.map(task => <li key={task.id}><div className="ln-row-heading"><div><strong>{task.name || "正在读取文件名"}</strong><p className="ln-muted">{task.direction === "upload" ? "上传" : "下载"} · {labels[task.state]} · {task.activeSources.length} 个来源</p></div>{task.state !== "completed" && <button className="ln-button ln-button-secondary" disabled={busy === task.id} onClick={() => void action(task)}>{task.state === "paused" ? "继续" : task.state === "failed" ? "重试" : "暂停"}</button>}</div><progress aria-label={`${task.name}传输进度`} max={task.totalBytes || 1} value={Math.min(task.bytesCompleted, task.totalBytes)}/><p className="ln-muted">{sizeLabel(task.bytesCompleted)} / {sizeLabel(task.totalBytes)}</p><ErrorNotice error={task.error ?? ""}/></li>)}</ul>
- </section>;
-}
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { apiErrorMessage } from '../api/rest';
+import { EmptyState } from '../components/EmptyState';
+import { useDesktop, useDesktopEvent } from '../runtime/DesktopProvider';
+import { TransferStore } from '../runtime/TransferStore';
+import { ErrorNotice, Loading, sizeLabel } from './shared';
+export type TransferState='queued'|'hashing'|'transferring'|'paused'|'verifying'|'completed'|'failed';
+export interface Transfer {id:string;direction:'upload'|'download';versionId:string;name:string;state:TransferState;bytesCompleted:number;totalBytes:number;activeSources:string[];groupId?:string;clientAttachmentId?:string;messageId?:string;error?:string;metrics?:{schemaVersion?:number;historyComplete?:boolean;revision:number;activeDurationMs?:number|null;transferDurationMs?:number|null;wallDurationMs?:number|null;currentBytesPerSecond?:number|null;averageBytesPerSecond?:number|null;etaSeconds?:number|null;[key:string]:unknown}}
+const labels:Record<TransferState,string>={queued:'等待中',hashing:'准备文件',transferring:'传输中',paused:'已暂停',verifying:'正在校验',completed:'已完成',failed:'失败'};
+export const activeTransfer=(task:Transfer)=>['queued','hashing','transferring','verifying'].includes(task.state);
+const Context=createContext<ReturnType<typeof useTransferSource>|null>(null);
+function useTransferSource(){const {desktop,capabilities}=useDesktop();const store=useMemo(()=>new TransferStore(),[desktop]);const revision=useRef(0);const state=useSyncExternalStore(store.subscribe,store.getSnapshot,store.getSnapshot);const eventUpdates=useRef(new Map<string,Transfer>());
+ useDesktopEvent('transfer.updated',(task:Transfer)=>{eventUpdates.current.set(task.id,task);store.upsert(task)});
+ const refresh=useCallback(async()=>{const run=++revision.current;eventUpdates.current.clear();if(!capabilities.nativeTransfers){store.status(false);return}store.status(true);try{const tasks=await desktop.invoke<Transfer[]>('list_transfers');if(run===revision.current){const merged=new Map(tasks.map(task=>[task.id,task]));eventUpdates.current.forEach((task,id)=>merged.set(id,task));store.replace([...merged.values()])}}catch(error){if(run===revision.current)store.status(false,apiErrorMessage(error))}},[desktop,store,capabilities.nativeTransfers]);
+ useEffect(()=>{void refresh();return()=>{revision.current++;store.clear()}},[refresh,store]);return {...state,refresh,store};}
+export function TransferProvider({children}:{children:ReactNode}){const queue=useTransferSource();return <Context.Provider value={queue}>{children}</Context.Provider>}
+export function useTransfers(){const queue=useContext(Context);if(!queue)throw new Error('TransferProvider missing');return queue}
+function duration(value:number|null|undefined){if(value==null||!Number.isFinite(value))return '暂无统计';if(value<60000)return `${Math.max(0,Math.round(value/1000))} 秒`;return `${Math.floor(value/60000)} 分 ${Math.floor(value%60000/1000)} 秒`}
+export function TransferCard({task,compact=false}:{task:Transfer;compact?:boolean}){const {desktop}=useDesktop();const queue=useTransfers();const [busy,setBusy]=useState(false);const [error,setError]=useState('');const m=task.metrics;async function action(){setBusy(true);setError('');try{await desktop.invoke(task.state==='paused'||task.state==='failed'?'resume_transfer':'pause_transfer',{taskId:task.id});await queue.refresh()}catch(e){setError(apiErrorMessage(e))}finally{setBusy(false)}}const current=m?.currentBytesPerSecond;return <section className={`ln-transfer-card ${compact?'is-compact':''}`} aria-label={`${task.name}传输任务`}><div className="ln-row-heading"><div><strong>{task.name||'正在读取文件名'}</strong><p className="ln-muted">{task.direction==='upload'?'上传':'下载'} · {labels[task.state]}</p></div>{task.state!=='completed'&&<button className="ln-button ln-button-secondary" disabled={busy} onClick={()=>void action()}>{task.state==='paused'?'继续':task.state==='failed'?'重试':'暂停'}</button>}</div><progress aria-label={`${task.name}传输进度`} max={task.totalBytes||1} value={task.state==='completed'&&!task.totalBytes?1:Math.min(task.bytesCompleted,task.totalBytes)}/><div className="ln-transfer-metrics"><span>{sizeLabel(task.bytesCompleted)} / {sizeLabel(task.totalBytes)}</span>{task.state==='transferring'?<><span>{current!=null&&Number.isFinite(current)?`${sizeLabel(current)}/s`:'速率计算中'}</span><span>{m?.etaSeconds!=null&&Number.isFinite(m.etaSeconds)?`预计剩余 ${duration(m.etaSeconds*1000)}`:'剩余时间计算中'}</span></>:<span>{labels[task.state]}</span>}</div>{task.state==='completed'&&<><p className="ln-muted">{m?.historyComplete===true?'总用时':'统计期间用时'} {duration(m?.activeDurationMs)} · {m?.historyComplete===true?'平均':'期间平均'} {m?.averageBytesPerSecond!=null&&Number.isFinite(m.averageBytesPerSecond)?`${sizeLabel(m.averageBytesPerSecond)}/s`:'暂无统计'}</p>{m?.historyComplete!==true&&<p className="ln-muted">早期历史未统计，以上仅为已记录期间的数据。</p>}</>}<ErrorNotice error={error||task.error||''}/></section>}
+export function TransfersView({queue,onConversation}:{queue:ReturnType<typeof useTransfers>;onConversation?:(id:string)=>void}){const {capabilities}=useDesktop();const [filter,setFilter]=useState<'active'|'done'>('active');const tasks=queue.tasks.filter(task=>filter==='done'?task.state==='completed':task.state!=='completed');return <section className="ln-feature ln-transfer-center"><div className="ln-toolbar"><div><h2>传输中心</h2><p className="ln-muted">{capabilities.nativeTransfers?'所有会话的文件任务，都在这里。':'网页版下载由浏览器管理，请在浏览器下载列表中查看。'}</p></div>{capabilities.nativeTransfers&&<button className="ln-button ln-button-secondary" onClick={()=>void queue.refresh()}>刷新</button>}</div><div className="ln-tabs"><button aria-pressed={filter==='active'} onClick={()=>setFilter('active')}>进行中 · {queue.tasks.filter(task=>task.state!=='completed').length}</button><button aria-pressed={filter==='done'} onClick={()=>setFilter('done')}>已完成 · {queue.tasks.filter(task=>task.state==='completed').length}</button></div><ErrorNotice error={queue.error} retry={()=>void queue.refresh()}/>{queue.loading&&<Loading/>}{!queue.loading&&!tasks.length&&<EmptyState icon="transfers" title="暂无传输任务" description={capabilities.nativeTransfers?'发送或下载文件后，可以在此查看进度和用时。':'需要大文件、上传和后台传输？请使用桌面客户端。'}/>}<ul className="ln-transfer-list">{tasks.map(task=><li key={task.id}><TransferCard task={task}/>{task.groupId&&onConversation&&<button className="ln-text-button" onClick={()=>onConversation(task.groupId!)}>返回会话</button>}</li>)}</ul></section>}

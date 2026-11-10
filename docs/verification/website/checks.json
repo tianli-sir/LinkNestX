@@ -1,0 +1,36 @@
+{
+  "checked": [
+    {
+      "width": 1440,
+      "noOverflow": true
+    },
+    {
+      "width": 1024,
+      "noOverflow": true
+    },
+    {
+      "width": 768,
+      "noOverflow": true
+    },
+    {
+      "width": 640,
+      "noOverflow": true
+    },
+    {
+      "width": 390,
+      "noOverflow": true
+    },
+    {
+      "width": 375,
+      "noOverflow": true
+    }
+  ],
+  "landscape": true,
+  "skipLink": true,
+  "keyboardFAQ": true,
+  "reducedMotion": true,
+  "externalRequests": 0,
+  "pageErrors": [],
+  "source": "file preview of embedded landing.html, illustrative product data",
+  "serverContacted": false
+}

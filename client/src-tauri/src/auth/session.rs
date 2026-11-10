@@ -25,6 +25,12 @@ pub struct User {
     pub id: String,
     pub username: String,
     #[serde(default)]
+    pub account_number: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
     pub email: String,
     pub roles: Vec<String>,
     pub disabled: bool,
@@ -50,7 +56,11 @@ pub fn normalize_origin(value: &str) -> Result<String> {
     };
     let url = Url::parse(&with_scheme).map_err(|_| TransferError::new("服务器地址无效"))?;
     let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-    if !(url.scheme() == "https" || url.scheme() == "http" && loopback)
+    let private_ipv4 = url
+        .host_str()
+        .and_then(|host| host.parse::<std::net::Ipv4Addr>().ok())
+        .is_some_and(|address| address.is_private());
+    if !(url.scheme() == "https" || url.scheme() == "http" && (loopback || private_ipv4))
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
@@ -59,7 +69,7 @@ pub fn normalize_origin(value: &str) -> Result<String> {
         || url.fragment().is_some()
     {
         return Err(TransferError::new(
-            "请输入 HTTPS 服务器地址；本机地址可使用 HTTP",
+            "公网地址需使用 HTTPS；局域网私有 IPv4 或本机地址可使用 HTTP",
         ));
     }
     Ok(url.origin().ascii_serialization())
@@ -83,6 +93,8 @@ pub fn api_url(origin: &str, path: &str) -> Result<Url> {
     Ok(url)
 }
 pub struct AuthManager {
+    pub activity: std::sync::Arc<crate::activity::ActivityGate>,
+    fixed_origin: Option<&'static str>,
     client: Client,
     state: RwLock<Option<NativeSession>>,
     refresh: Mutex<()>,
@@ -97,11 +109,32 @@ impl AuthManager {
             .timeout(Duration::from_secs(90))
             .build()?;
         Ok(Self {
+            fixed_origin: None,
+            activity: Default::default(),
             client,
             state: RwLock::new(None),
             refresh: Mutex::new(()),
             root: root.into(),
         })
+    }
+    pub fn production(root: &Path) -> Result<Self> {
+        let mut auth = Self::new(root)?;
+        auth.fixed_origin = Some(crate::deployment::SERVER_ORIGIN);
+        Ok(auth)
+    }
+    pub(crate) fn login_origin(&self, requested: &str) -> Result<String> {
+        normalize_origin(self.fixed_origin.unwrap_or(requested))
+    }
+    pub fn selection_scope_now(&self) -> Option<String> {
+        self.state
+            .try_read()
+            .ok()?
+            .as_ref()
+            .map(|s| format!("{}:{}", s.owner(), s.session.id))
+    }
+    pub async fn selection_scope(&self) -> Result<String> {
+        let s = self.current().await?;
+        Ok(format!("{}:{}", s.owner(), s.session.id))
     }
     pub async fn current(&self) -> Result<NativeSession> {
         self.state
@@ -120,7 +153,7 @@ impl AuthManager {
         password: &str,
         device: Option<String>,
     ) -> Result<Session> {
-        let origin = normalize_origin(origin)?;
+        let origin = self.login_origin(origin)?;
         let _guard = self.refresh.lock().await;
         let device_path = self.root.join(format!(
             "device-{}.txt",
@@ -254,6 +287,21 @@ impl AuthManager {
         body: Option<Vec<u8>>,
         json_body: bool,
     ) -> Result<Response> {
+        self.request_for_transfer(owner, method, path, body, json_body, None)
+            .await
+    }
+    pub async fn request_for_transfer(
+        &self,
+        owner: &str,
+        method: &str,
+        path: &str,
+        body: Option<Vec<u8>>,
+        json_body: bool,
+        task: Option<&str>,
+    ) -> Result<Response> {
+        if let Some(id) = task {
+            uuid::Uuid::parse_str(id).map_err(|_| TransferError::new("传输任务标识无效"))?;
+        }
         let method = match method {
             "GET" => Method::GET,
             "POST" => Method::POST,
@@ -271,6 +319,9 @@ impl AuthManager {
                 .client
                 .request(method.clone(), api_url(&current.origin, path)?)
                 .bearer_auth(&current.session.access_token);
+            if let Some(id) = task {
+                request = request.header("X-Transfer-ID", id);
+            }
             if let Some(ref body) = body {
                 request = request
                     .header(
@@ -281,7 +332,28 @@ impl AuthManager {
                             "application/octet-stream"
                         },
                     )
-                    .body(body.clone())
+                    .header("content-length", body.len());
+                if !json_body {
+                    if let Some(live) =
+                        task.and_then(|id| crate::transfer::metrics::observer(owner, id))
+                    {
+                        // Rebuild this stream for each authentication attempt; a 401 must not reuse a consumed body.
+                        let pieces: Vec<bytes::Bytes> = body
+                            .chunks(64 * 1024)
+                            .map(bytes::Bytes::copy_from_slice)
+                            .collect();
+                        let stream =
+                            futures_util::stream::iter(pieces.into_iter().map(move |piece| {
+                                live.payload(piece.len());
+                                Ok::<_, std::io::Error>(piece)
+                            }));
+                        request = request.body(reqwest::Body::wrap_stream(stream));
+                    } else {
+                        request = request.body(body.clone());
+                    }
+                } else {
+                    request = request.body(body.clone());
+                }
             }
             let response = request.send().await?;
             if response.status().as_u16() == 401 && attempt == 0 {
@@ -327,6 +399,13 @@ impl AuthManager {
     }
 }
 pub async fn limited_body(response: Response, limit: usize) -> Result<Vec<u8>> {
+    limited_body_observed(response, limit, None).await
+}
+pub async fn limited_body_observed(
+    response: Response,
+    limit: usize,
+    observer: Option<std::sync::Arc<crate::transfer::metrics::Live>>,
+) -> Result<Vec<u8>> {
     if !response.status().is_success() {
         return Err(TransferError::http(response.status().as_u16()));
     }
@@ -339,6 +418,9 @@ pub async fn limited_body(response: Response, limit: usize) -> Result<Vec<u8>> {
         let next = next?;
         if bytes.len() + next.len() > limit {
             return Err(TransferError::new("服务器响应超出允许大小"));
+        }
+        if let Some(live) = &observer {
+            live.payload(next.len());
         }
         bytes.extend_from_slice(&next)
     }

@@ -50,6 +50,49 @@ async fn cancellation_drops_an_inflight_operation() {
 }
 
 #[test]
+fn explicit_private_ipv4_http_origins_preserve_public_https_requirement() {
+    for host in [
+        "10.0.0.0",
+        "10.255.255.255",
+        "172.16.0.0",
+        "172.31.255.255",
+        "192.168.0.0",
+        "192.168.255.255",
+        "192.168.31.41",
+    ] {
+        assert_eq!(
+            normalize_origin(&format!("http://{host}:18080/")).unwrap(),
+            format!("http://{host}:18080")
+        );
+        assert_eq!(
+            normalize_origin(&format!("{host}:18080")).unwrap(),
+            format!("https://{host}:18080")
+        );
+    }
+    for origin in [
+        "http://9.255.255.255",
+        "http://11.0.0.0",
+        "http://172.15.255.255",
+        "http://172.32.0.0",
+        "http://192.167.255.255",
+        "http://192.169.0.0",
+        "http://8.8.8.8",
+        "http://169.254.1.1",
+        "http://100.64.0.1",
+        "http://files.local",
+        "http://192.168.31.41.example.com",
+        "http://[fc00::1]",
+        "http://[::ffff:192.168.1.1]",
+        "http://user:pass@192.168.31.41",
+        "http://192.168.31.41/path",
+        "http://192.168.31.41?x=1",
+        "http://192.168.31.41#fragment",
+    ] {
+        assert!(normalize_origin(origin).is_err(), "{origin}");
+    }
+}
+
+#[test]
 fn origin_and_paths_cannot_leak_credentials() {
     for origin in [
         "http://example.com",
@@ -159,4 +202,29 @@ async fn expired_and_revoked_cache_is_removed_without_touching_saved_files() {
         std::fs::read(root.path().join("saved.txt")).unwrap(),
         b"abc"
     );
+}
+
+#[tokio::test]
+async fn persisted_seed_catalog_tracks_verified_writes_eviction_and_account() {
+    let root = tempdir().unwrap();
+    let chunk = Chunk {
+        index: 7,
+        hash: hash(b"abc"),
+        size: 3,
+    };
+    let cache = Cache::open(root.path(), 10).unwrap();
+    let mut changes = cache.subscribe();
+    cache
+        .store("owner", "version", &chunk, b"abc", None)
+        .await
+        .unwrap();
+    assert!(changes.has_changed().unwrap());
+    changes.borrow_and_update();
+    drop(cache);
+    let cache = Cache::open(root.path(), 10).unwrap();
+    let entries = cache.catalog("owner").await.unwrap();
+    assert_eq!(entries, vec![("version".into(), chunk)]);
+    assert!(cache.catalog("other").await.unwrap().is_empty());
+    cache.set_quota(0).await.unwrap();
+    assert!(cache.catalog("owner").await.unwrap().is_empty());
 }

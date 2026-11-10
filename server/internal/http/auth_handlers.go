@@ -23,6 +23,7 @@ func NewAuthHandlers(service *auth.AuthService) *AuthHandlers {
 	return &AuthHandlers{Service: service, limiter: newAuthLimiter()}
 }
 func (h *AuthHandlers) Register(mux *http.ServeMux) {
+	h.registerWeb(mux)
 	h.registerAccounts(mux)
 	mux.Handle("POST /api/v1/auth/login", http.HandlerFunc(h.Login))
 	mux.Handle("POST /api/v1/auth/refresh", http.HandlerFunc(h.Refresh))
@@ -45,6 +46,10 @@ func (h *AuthHandlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Origin") != "" {
+		writeError(w, 403, auth.ErrUnauthorized)
+		return
+	}
 	if !h.allowAuthentication(w, r) {
 		return
 	}
@@ -62,6 +67,10 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, session)
 }
 func (h *AuthHandlers) Refresh(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Origin") != "" {
+		writeError(w, 403, auth.ErrUnauthorized)
+		return
+	}
 	if !h.allowAuthentication(w, r) {
 		return
 	}

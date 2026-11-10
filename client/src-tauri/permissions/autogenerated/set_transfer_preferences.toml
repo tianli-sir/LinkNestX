@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-transfer-preferences"
+description = "Enables the set_transfer_preferences command without any pre-configured scope."
+commands.allow = ["set_transfer_preferences"]
+
+[[permission]]
+identifier = "deny-set-transfer-preferences"
+description = "Denies the set_transfer_preferences command without any pre-configured scope."
+commands.deny = ["set_transfer_preferences"]

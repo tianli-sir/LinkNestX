@@ -1,11 +1,14 @@
 use crate::{
+    audit_export::{
+        AuditExportManager, AuditFormat, ExportOutcome, ExportRequest, NativeAuditSavePicker,
+    },
     auth::{
         session::{AuthManager, Session, User},
         socket::SocketBridge,
     },
     events::EventSink,
     transfer::{
-        models::{suggested_name, SharingPolicy, TaskSnapshot},
+        models::{suggested_name, TaskSnapshot},
         service::TransferService,
     },
     Result, TransferError,
@@ -18,6 +21,7 @@ use std::{
 use tokio::sync::Mutex;
 
 pub struct NativeState {
+    pub audit_exports: Arc<AuditExportManager>,
     pub auth: Arc<AuthManager>,
     pub transfers: Arc<TransferService>,
     pub socket: SocketBridge,
@@ -25,11 +29,22 @@ pub struct NativeState {
     pub exiting: AtomicBool,
     pub exit_ready: AtomicBool,
     pub lifecycle: Mutex<()>,
-    pub uploads: Mutex<HashSet<String>>,
+    pub attachments: Mutex<crate::attachments::Registry>,
     pub destinations: Mutex<HashSet<String>>,
 }
 impl NativeState {
+    pub async fn expire_attachments(&self) {
+        let scope = self.auth.selection_scope().await.ok();
+        let mut registry = self.attachments.lock().await;
+        registry.expire(crate::attachments::now());
+        if scope.is_none() {
+            registry.clear();
+        }
+    }
+
     pub async fn stop(&self) -> Result<()> {
+        self.attachments.lock().await.clear();
+        self.audit_exports.shutdown().await;
         self.socket.stop().await;
         self.transfers.shutdown().await
     }
@@ -69,17 +84,24 @@ pub fn app_version() -> &'static str {
 #[tauri::command]
 pub async fn login(
     state: tauri::State<'_, NativeState>,
-    server_url: String,
     username: String,
     password: String,
     device_id: Option<String>,
 ) -> Result<Session> {
     let _guard = state.lifecycle.lock().await;
+    state.attachments.lock().await.clear();
+    state.audit_exports.cancel_and_wait().await;
     state.socket.stop().await;
+    state.transfers.peers.stop().await;
     state.transfers.pause_all().await?;
     let session = state
         .auth
-        .login(&server_url, &username, &password, device_id)
+        .login(
+            crate::deployment::SERVER_ORIGIN,
+            &username,
+            &password,
+            device_id,
+        )
         .await?;
     state
         .socket
@@ -91,10 +113,12 @@ pub async fn login(
 #[tauri::command]
 pub async fn logout(state: tauri::State<'_, NativeState>) -> Result<()> {
     let _guard = state.lifecycle.lock().await;
+    state.audit_exports.cancel_and_wait().await;
     state.socket.stop().await;
+    state.transfers.peers.stop().await;
     let paused = state.transfers.pause_all().await;
     state.transfers.set_peer_sources(vec![]).await;
-    state.uploads.lock().await.clear();
+    state.attachments.lock().await.clear();
     state.destinations.lock().await.clear();
     state
         .events
@@ -102,6 +126,44 @@ pub async fn logout(state: tauri::State<'_, NativeState>) -> Result<()> {
     let logout = state.auth.logout().await;
     paused?;
     logout
+}
+#[tauri::command]
+pub fn reserve_audit_export(state: tauri::State<'_, NativeState>) -> Result<String> {
+    state.audit_exports.reserve()
+}
+#[tauri::command]
+pub async fn export_audit(
+    state: tauri::State<'_, NativeState>,
+    export_id: String,
+    format: AuditFormat,
+    action: String,
+) -> Result<ExportOutcome> {
+    let _activity = state.auth.activity.try_enter()?;
+    let request = match ExportRequest::new(format, action) {
+        Ok(request) => request,
+        Err(error) => {
+            state.audit_exports.cancel(&export_id).await;
+            return Err(error);
+        }
+    };
+    state
+        .audit_exports
+        .export_reserved(
+            &export_id,
+            &state.lifecycle,
+            state.auth.clone(),
+            request,
+            &NativeAuditSavePicker,
+        )
+        .await
+}
+#[tauri::command]
+pub async fn cancel_audit_export(
+    state: tauri::State<'_, NativeState>,
+    export_id: String,
+) -> Result<()> {
+    state.audit_exports.cancel(&export_id).await;
+    Ok(())
 }
 #[tauri::command]
 pub async fn api_request(
@@ -117,28 +179,15 @@ pub async fn start_download(
     state: tauri::State<'_, NativeState>,
     version_id: String,
     destination: String,
+    group_id: Option<String>,
+    message_id: Option<String>,
 ) -> Result<String> {
     if !state.destinations.lock().await.remove(&destination) {
         return Err(TransferError::new("请通过保存文件对话框选择目标位置"));
     }
     state
         .transfers
-        .start_download(version_id, destination)
-        .await
-}
-#[tauri::command]
-pub async fn start_upload(
-    state: tauri::State<'_, NativeState>,
-    group_id: String,
-    source: String,
-    file_id: Option<String>,
-) -> Result<String> {
-    if !state.uploads.lock().await.remove(&source) {
-        return Err(TransferError::new("请通过文件对话框选择上传文件"));
-    }
-    state
-        .transfers
-        .start_upload(group_id, source, file_id)
+        .start_download_for_message(version_id, destination, group_id, message_id)
         .await
 }
 #[tauri::command]
@@ -154,34 +203,8 @@ pub async fn list_transfers(state: tauri::State<'_, NativeState>) -> Result<Vec<
     state.transfers.list().await
 }
 #[tauri::command]
-pub async fn get_sharing_policy(state: tauri::State<'_, NativeState>) -> Result<SharingPolicy> {
-    Ok(state.transfers.sharing_policy().await)
-}
-#[tauri::command]
-pub async fn set_sharing_policy(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, NativeState>,
-    policy: SharingPolicy,
-) -> Result<()> {
-    policy.validate()?;
-    crate::autostart::set(&app, policy.autostart)?;
-    state.transfers.set_sharing_policy(policy).await
-}
-#[tauri::command]
 pub async fn send_server_event(state: tauri::State<'_, NativeState>, event: Value) -> Result<()> {
     state.socket.send(event).await
-}
-#[tauri::command]
-pub async fn pick_upload_file(state: tauri::State<'_, NativeState>) -> Result<Option<String>> {
-    let file = rfd::AsyncFileDialog::new()
-        .set_title("选择上传文件")
-        .pick_file()
-        .await;
-    let path = file.map(|f| f.path().to_string_lossy().into_owned());
-    if let Some(ref path) = path {
-        state.uploads.lock().await.insert(path.clone());
-    }
-    Ok(path)
 }
 #[tauri::command]
 pub async fn pick_download_destination(
@@ -198,4 +221,295 @@ pub async fn pick_download_destination(
         state.destinations.lock().await.insert(path.clone());
     }
     Ok(path)
+}
+
+#[tauri::command]
+pub fn get_background_status<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> crate::background::BackgroundSnapshot {
+    use tauri::Manager;
+    app.state::<crate::background::BackgroundState>().snapshot()
+}
+
+#[tauri::command]
+pub fn client_configuration() -> Value {
+    crate::deployment::configuration()
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransferPreferences {
+    pub max_concurrent: usize,
+    pub bandwidth_limit_bps: u64,
+    pub autostart: bool,
+}
+#[tauri::command]
+pub async fn get_transfer_preferences(
+    state: tauri::State<'_, NativeState>,
+) -> Result<TransferPreferences> {
+    let p = state.transfers.sharing_policy().await;
+    Ok(TransferPreferences {
+        max_concurrent: p.max_concurrent,
+        bandwidth_limit_bps: p.bandwidth_limit_bps,
+        autostart: p.autostart,
+    })
+}
+#[tauri::command]
+pub async fn set_transfer_preferences(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, NativeState>,
+    preferences: TransferPreferences,
+) -> Result<()> {
+    let mut p = state.transfers.sharing_policy().await;
+    p.max_concurrent = preferences.max_concurrent;
+    p.bandwidth_limit_bps = preferences.bandwidth_limit_bps;
+    p.autostart = preferences.autostart;
+    p.validate()?;
+    crate::autostart::set(&app, p.autostart)?;
+    state.transfers.set_sharing_policy(p).await
+}
+fn main_window(window: &tauri::WebviewWindow) -> Result<()> {
+    if window.label() != "main" {
+        return Err(TransferError::new("此窗口不能读取附件"));
+    }
+    Ok(())
+}
+#[tauri::command]
+pub async fn pick_upload_files(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, NativeState>,
+) -> Result<Vec<crate::attachments::Attachment>> {
+    main_window(&window)?;
+    let scope = state.auth.selection_scope().await?;
+    let files = rfd::AsyncFileDialog::new()
+        .set_title("选择附件")
+        .pick_files()
+        .await
+        .unwrap_or_default();
+    let _guard = state.lifecycle.lock().await;
+    if state.auth.selection_scope().await? != scope {
+        return Err(TransferError::new("登录账户已更改，请重新选择"));
+    }
+    state.attachments.lock().await.prepare_files(
+        &scope,
+        files.into_iter().map(|f| f.path().to_owned()).collect(),
+        crate::attachments::now(),
+    )
+}
+#[tauri::command]
+pub async fn read_clipboard_attachments(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, NativeState>,
+) -> Result<Vec<crate::attachments::Attachment>> {
+    main_window(&window)?;
+    if !window.is_focused().unwrap_or(false) {
+        return Err(TransferError::new("请在当前窗口中粘贴附件"));
+    }
+    let scope = state.auth.selection_scope().await?;
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = send.send(crate::attachments::read_clipboard());
+    })
+    .map_err(|_| TransferError::new("无法读取剪贴板，请选择文件"))?;
+    let content = receive
+        .await
+        .map_err(|_| TransferError::new("剪贴板读取已取消"))??;
+    let _guard = state.lifecycle.lock().await;
+    if state.auth.selection_scope().await? != scope {
+        return Err(TransferError::new("登录账户已更改，请重新粘贴"));
+    }
+    let mut registry = state.attachments.lock().await;
+    match content {
+        crate::attachments::ClipboardContent::Files(paths) => {
+            registry.prepare_files(&scope, paths, crate::attachments::now())
+        }
+        crate::attachments::ClipboardContent::Image(bytes) => {
+            registry.prepare_image(&scope, &bytes, crate::attachments::now())
+        }
+        crate::attachments::ClipboardContent::Empty => Ok(vec![]),
+    }
+}
+#[tauri::command]
+pub async fn discard_attachment(
+    state: tauri::State<'_, NativeState>,
+    source_handle: String,
+) -> Result<()> {
+    let scope = state.auth.selection_scope().await?;
+    state
+        .attachments
+        .lock()
+        .await
+        .discard(&scope, &source_handle, crate::attachments::now())
+}
+#[tauri::command]
+pub async fn start_attachment_upload(
+    state: tauri::State<'_, NativeState>,
+    group_id: String,
+    source_handle: String,
+    client_attachment_id: String,
+    file_id: Option<String>,
+) -> Result<String> {
+    crate::transfer::models::segment(&group_id)?;
+    crate::transfer::models::segment(&client_attachment_id)?;
+    let _activity = state.auth.activity.try_enter()?;
+    let scope = state.auth.selection_scope().await?;
+    let (selection, root) = {
+        let mut registry = state.attachments.lock().await;
+        (
+            registry.take(&scope, &source_handle, crate::attachments::now())?,
+            registry.root.clone(),
+        )
+    };
+    let name = selection.name.clone();
+    let staged = tokio::task::spawn_blocking(move || selection.materialize(&root))
+        .await
+        .map_err(|_| TransferError::new("附件准备已取消"))??;
+    let _guard = state.lifecycle.lock().await;
+    if state.auth.selection_scope().await? != scope {
+        return Err(TransferError::new("登录账户已更改，请重新选择"));
+    }
+    let path = staged
+        .path()
+        .to_str()
+        .ok_or_else(|| TransferError::new("附件路径无法识别"))?
+        .to_owned();
+    let task = state
+        .transfers
+        .start_upload_with_attachment(
+            group_id,
+            path,
+            file_id,
+            Some(client_attachment_id),
+            true,
+            Some(name),
+        )
+        .await?;
+    staged.commit();
+    Ok(task)
+}
+/// Called only from the trusted OS drag/drop callback, never exposed over IPC.
+pub async fn native_drop(
+    state: &NativeState,
+    scope: String,
+    paths: Vec<std::path::PathBuf>,
+) -> Result<()> {
+    let _guard = state.lifecycle.lock().await;
+    if state.auth.selection_scope().await? != scope {
+        return Err(TransferError::new("登录账户已更改，请重新拖入文件"));
+    }
+    let prepared =
+        state
+            .attachments
+            .lock()
+            .await
+            .prepare_files(&scope, paths, crate::attachments::now())?;
+    state
+        .events
+        .emit("attachments.prepared", serde_json::to_value(prepared)?);
+    Ok(())
+}
+fn avatar_mime(bytes: &[u8]) -> Result<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Ok("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Ok("image/jpeg")
+    } else {
+        Err(TransferError::new("头像仅支持PNG或JPEG图片"))
+    }
+}
+#[tauri::command]
+pub async fn set_profile_avatar(
+    state: tauri::State<'_, NativeState>,
+    source_handle: String,
+) -> Result<Value> {
+    let _activity = state.auth.activity.try_enter()?;
+    let scope = state.auth.selection_scope().await?;
+    let selected =
+        state
+            .attachments
+            .lock()
+            .await
+            .take(&scope, &source_handle, crate::attachments::now())?;
+    let bytes = tokio::task::spawn_blocking(move || selected.read_bounded(2 * 1024 * 1024))
+        .await
+        .map_err(|_| TransferError::new("头像读取已取消"))??;
+    avatar_mime(&bytes)?;
+    let _guard = state.lifecycle.lock().await;
+    if state.auth.selection_scope().await? != scope {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    let owner = state.auth.owner().await?;
+    let response = state
+        .auth
+        .request_for(&owner, "PUT", "/api/v1/profile/avatar", Some(bytes), false)
+        .await?;
+    serde_json::from_slice(&crate::auth::session::limited_body(response, 1024 * 1024).await?)
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn profile_avatar(
+    state: tauri::State<'_, NativeState>,
+    user_id: String,
+) -> Result<String> {
+    use base64::Engine;
+    crate::transfer::models::segment(&user_id)?;
+    let owner = state.auth.owner().await?;
+    let response = state
+        .auth
+        .request_for(
+            &owner,
+            "GET",
+            &format!("/api/v1/profiles/{user_id}/avatar"),
+            None,
+            false,
+        )
+        .await?;
+    let data = crate::auth::session::limited_body(response, 2 * 1024 * 1024).await?;
+    if state.auth.owner().await? != owner {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    Ok(format!(
+        "data:{};base64,{}",
+        avatar_mime(&data)?,
+        base64::engine::general_purpose::STANDARD.encode(data)
+    ))
+}
+
+#[tauri::command]
+pub fn get_update_status(
+    updater: tauri::State<'_, Arc<crate::update::UpdateService>>,
+) -> crate::update::UpdateStatus {
+    updater.status()
+}
+#[tauri::command]
+pub async fn check_for_updates(
+    updater: tauri::State<'_, Arc<crate::update::UpdateService>>,
+) -> Result<crate::update::UpdateStatus> {
+    Ok(updater.check().await)
+}
+#[tauri::command]
+pub fn defer_update(
+    updater: tauri::State<'_, Arc<crate::update::UpdateService>>,
+) -> crate::update::UpdateStatus {
+    updater.defer()
+}
+#[tauri::command]
+pub async fn install_ready_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, NativeState>,
+    updater: tauri::State<'_, Arc<crate::update::UpdateService>>,
+) -> Result<crate::update::UpdateStatus> {
+    if updater.begin_install().await? {
+        use std::sync::atomic::Ordering;
+        state.exiting.store(true, Ordering::SeqCst);
+        // The trusted helper is ready and owns recovery. Always exit after irreversible shutdown.
+        if let Err(error) = state.stop().await {
+            state
+                .events
+                .emit("service.error", serde_json::json!({"error":error.error}));
+        }
+        state.exit_ready.store(true, Ordering::SeqCst);
+        app.exit(0);
+    }
+    Ok(updater.status())
 }

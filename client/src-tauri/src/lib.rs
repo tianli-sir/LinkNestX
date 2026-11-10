@@ -1,7 +1,9 @@
+pub mod audit_export;
 pub mod auth;
 pub mod autostart;
 pub mod commands;
 pub mod events;
+pub mod peer;
 pub mod transfer;
 pub mod tray;
 
@@ -53,3 +55,12 @@ impl From<reqwest::Error> for TransferError {
         Self::new("无法连接服务器，请检查网络")
     }
 }
+
+pub mod background;
+mod notifications;
+
+pub mod activity;
+pub mod attachments;
+pub mod deployment;
+
+pub mod update;

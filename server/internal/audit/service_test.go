@@ -195,3 +195,55 @@ func TestAuditExportReleasesDatabaseBeforeWritingAndRechecksRevocation(t *testin
 		t.Fatal("revoked export emitted successful completion")
 	}
 }
+
+func TestFinalLogicalCompletionsAreIdempotentAndSeparateFromTraffic(t *testing.T) {
+	s, ctx := fixture(t)
+	actor, _ := auth.UserFromContext(ctx)
+	g, f, v := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	at := "2026-01-01T00:00:00Z"
+	for _, q := range []struct {
+		q string
+		a []any
+	}{{`INSERT INTO groups(id,name,created_by,created_at)VALUES(?,'g',?,?)`, []any{g, actor.ID, at}}, {`INSERT INTO files(id,group_id,name,created_by,visibility,created_at)VALUES(?,?,'f',?,'pool',?)`, []any{f, g, actor.ID, at}}, {`INSERT INTO file_versions(id,file_id,created_by,name,size,sha256,chunk_size,status,created_at)VALUES(?,?,?,'f',0,'hash',4,'published',?)`, []any{v, f, actor.ID, at}}} {
+		if _, e := s.db.Exec(q.q, q.a...); e != nil {
+			t.Fatal(e)
+		}
+	}
+	for _, size := range []int64{0, 4096} {
+		if _, e := s.db.Exec(`UPDATE file_versions SET size=? WHERE id=?`, size, v); e != nil {
+			t.Fatal(e)
+		}
+		in := TransferInput{TaskID: uuid.NewString(), VersionID: v, NodeID: "local", Action: "download.completed", Bytes: size}
+		for i := 0; i < 2; i++ {
+			if e := s.RecordClientTransfer(ctx, in); e != nil {
+				t.Fatal(e)
+			}
+		}
+		in.Bytes++
+		if e := s.RecordClientTransfer(ctx, in); !errors.Is(e, ErrInvalidInput) {
+			t.Fatalf("whole size %v", e)
+		}
+	}
+	page, e := s.Page(ctx, Filter{Action: "download.completed"})
+	if e != nil || page.Total != 2 {
+		t.Fatalf("logical %v %v", page, e)
+	}
+	for _, row := range page.Events {
+		if row.Source != "client-reported" || row.NodeID != "local" {
+			t.Fatal(row)
+		}
+	}
+	var n int
+	if e = s.db.QueryRow(`SELECT count(*) FROM transfer_records`).Scan(&n); e != nil || n != 0 {
+		t.Fatalf("invented traffic %d %v", n, e)
+	}
+	task1, task2 := uuid.NewString(), uuid.NewString()
+	for _, task := range []string{task1, task2} {
+		if e = s.RecordServerDelivery(ctx, actor.ID, v, task, 7); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = s.db.QueryRow(`SELECT count(DISTINCT task_id) FROM transfer_records`).Scan(&n); e != nil || n != 2 {
+		t.Fatalf("task grouping %d %v", n, e)
+	}
+}

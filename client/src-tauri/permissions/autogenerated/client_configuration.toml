@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-client-configuration"
+description = "Enables the client_configuration command without any pre-configured scope."
+commands.allow = ["client_configuration"]
+
+[[permission]]
+identifier = "deny-client-configuration"
+description = "Denies the client_configuration command without any pre-configured scope."
+commands.deny = ["client_configuration"]

@@ -3,6 +3,9 @@ package http
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/google/uuid"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -69,10 +72,40 @@ func TestPeerRoutesAuthenticateBoundBodiesAndIsolateChat(t *testing.T) {
 	if w := request("GET", "/api/v1/p2p/config", session.AccessToken, ""); w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"iceServers":[]}` {
 		t.Fatalf("config %d %s", w.Code, w.Body)
 	}
-	for _, path := range []string{"announce", "heartbeat", "withdraw", "grants", "grants/validate"} {
+	for _, path := range []string{"allocate", "announce", "heartbeat", "withdraw", "grants", "grants/validate"} {
 		if w := request("POST", "/api/v1/p2p/"+path, session.AccessToken, `{"unexpected":"`+strings.Repeat("x", 65536)+`"}`); w.Code != 413 {
 			t.Fatalf("body bound %s %d %s", path, w.Code, w.Body)
 		}
+		if w := request("POST", "/api/v1/p2p/allocate", "", `{}`); w.Code != 401 {
+			t.Fatalf("anonymous allocation %d", w.Code)
+		}
+		if w := request("POST", "/api/v1/p2p/allocate", session.AccessToken, `{"versionId":"bad","taskId":"bad","deviceId":"forged"}`); w.Code != 400 {
+			t.Fatalf("spoofed allocation %d", w.Code)
+		}
+		if w := request("POST", "/api/v1/p2p/allocate", session.AccessToken, `null`); w.Code != 400 {
+			t.Fatalf("null allocation %d", w.Code)
+		}
+	}
+	ctx, err := a.AuthenticateContext(context.Background(), session.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := gs.Create(ctx, session.User.ID, groups.CreateInput{Name: "allocation", OwnerID: session.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	upload, err := fs.StartUpload(ctx, session.User.ID, files.StartUploadInput{GroupID: group.ID, Name: "empty.bin", Size: 0, SHA256: emptyHash, Chunks: []files.Chunk{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = fs.CompleteUpload(ctx, session.User.ID, upload.UploadID); err != nil {
+		t.Fatal(err)
+	}
+	w := request("POST", "/api/v1/p2p/allocate", session.AccessToken, fmt.Sprintf(`{"versionId":%q,"taskId":%q}`, upload.VersionID, uuid.NewString()))
+	var allocation p2p.Allocation
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &allocation) != nil || allocation.StartIndex != 0 || allocation.EndIndex != 0 {
+		t.Fatalf("allocation contract %d %s", w.Code, w.Body)
 	}
 	if w := request("POST", "/api/v1/p2p/withdraw", session.AccessToken, `{}`); w.Code != 204 {
 		t.Fatalf("withdraw %d %s", w.Code, w.Body)

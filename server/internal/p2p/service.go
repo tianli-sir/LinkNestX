@@ -48,6 +48,7 @@ type ICEConfig struct {
 // PeerService is shared by the HTTP boundary and hub, using the existing trusted
 // auth context. No caller-supplied device/user fields establish identity.
 type PeerService interface {
+	Allocate(context.Context, string, AllocationInput) (Allocation, error)
 	Announce(context.Context, string, AnnounceInput) error
 	Heartbeat(context.Context, string, string) error
 	Withdraw(context.Context, string, string) error
@@ -62,11 +63,12 @@ type PeerService interface {
 	Cleanup(context.Context) error
 }
 type Service struct {
-	db    *sql.DB
-	auth  *auth.AuthService
-	files *files.FileService
-	cfg   config.Config
-	now   func() time.Time
+	allocations allocationBook
+	db          *sql.DB
+	auth        *auth.AuthService
+	files       *files.FileService
+	cfg         config.Config
+	now         func() time.Time
 }
 
 func NewService(db *sql.DB, a *auth.AuthService, f *files.FileService, cfg config.Config) *Service {
@@ -84,10 +86,12 @@ func (s *Service) AuthorizeVersion(ctx context.Context, actor, version string) e
 	if !validID(version) {
 		return ErrInvalidInput
 	}
-	_, err := s.files.Manifest(ctx, actor, version)
-	return err
+	return s.files.RequirePeerSharing(ctx, actor, version)
 }
 func (s *Service) CreateChunkGrant(ctx context.Context, actor, version, hash string) (files.ChunkGrant, error) {
+	if err := s.files.RequirePeerSharing(ctx, actor, version); err != nil {
+		return files.ChunkGrant{}, err
+	}
 	return s.files.AuthorizeChunk(ctx, actor, version, hash)
 }
 func (s *Service) ValidateChunkGrant(ctx context.Context, g files.ChunkGrant) error {

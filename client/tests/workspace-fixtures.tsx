@@ -14,6 +14,8 @@ export function harness(options: {
     const custom = await options.request?.(method, path, body);
     if (custom !== undefined)
       return custom;
+    if (path === "/api/v1/conversations") return [{id:"g1",kind:"group",title:"研发协作",canSend:true,memberCount:2,unreadCount:0},{id:"g2",kind:"group",title:"设计讨论",canSend:true,memberCount:2,unreadCount:0}];
+    if (path === "/api/v1/contacts") return {friends:[],incoming:[],outgoing:[]};
     if (path === "/api/v1/groups")
       return [{ id: "g1", name: "研发协作", createdBy: "u1", createdAt: "2026-11-09" }, { id: "g2", name: "设计讨论", createdBy: "u2", createdAt: "2026-11-09" }];
     if (path.endsWith("/members"))
@@ -24,6 +26,8 @@ export function harness(options: {
       return [];
     if (path === "/api/v1/admin/users" || path === "/api/v1/users")
       return [user];
+    if (method === "GET" && path === "/api/v1/me/devices")
+      return [];
     throw new Error(`未提供响应 ${method} ${path}`);
   });
   const transport: NativeTransport = { login: vi.fn(async () => ({ id: "s", accessToken: "a", refreshToken: "r", expiresAt: "", deviceId: "d", user: { ...user, roles: options.admin ? ["admin"] : user.roles, mustChangePassword: !!options.mustChangePassword } })), logout: vi.fn(async () => {
@@ -34,6 +38,8 @@ export function harness(options: {
       return custom;
     if (name === "list_transfers")
       return [];
+    if (name === "get_transfer_preferences") return {maxConcurrent:3,bandwidthLimitBps:0,autostart:false};
+    if (["discard_attachment", "get_update_status"].includes(name)) return null;
     throw new Error(`命令不可用 ${name}`);
   });
   const listen = vi.fn(async (name: string, callback: (payload: any) => void) => {
@@ -46,12 +52,13 @@ export function harness(options: {
   });
   const view = render(<App transport={transport} desktop={{ invoke, listen }} storage={{ getItem: () => null, setItem: () => {
       } }}/>);
-  const login = async () => {
-    fireEvent.change(screen.getByLabelText("服务器地址"), { target: { value: "https://files.example.com" } });
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "小林" } });
+  const login = async (management = false) => {
+    fireEvent.change(screen.getByLabelText("账号"), { target: { value: "小林" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    if(management){fireEvent.click(await screen.findByRole("button",{name:"群组与成员管理"}));return;}
     await screen.findByRole(options.mustChangePassword ? "heading" : "button", { name: options.mustChangePassword ? "设置新密码" : "研发协作" });
+    if(!options.mustChangePassword) fireEvent.click(screen.getByRole("button",{name:"研发协作"}));
   };
   const emit = async (name: string, payload: any) => {
     await act(async () => {

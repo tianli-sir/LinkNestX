@@ -19,6 +19,7 @@ type PeerHandlers struct{ Service p2p.PeerService }
 
 func NewPeerHandlers(s p2p.PeerService) *PeerHandlers { return &PeerHandlers{Service: s} }
 func (h *PeerHandlers) Register(mux *http.ServeMux, a *auth.AuthService) {
+	mux.Handle("POST /api/v1/p2p/allocate", RequireAuth(a, http.HandlerFunc(h.Allocate)))
 	mux.Handle("POST /api/v1/p2p/announce", RequireAuth(a, http.HandlerFunc(h.Announce)))
 	mux.Handle("POST /api/v1/p2p/heartbeat", RequireAuth(a, http.HandlerFunc(h.Heartbeat)))
 	mux.Handle("POST /api/v1/p2p/withdraw", RequireAuth(a, http.HandlerFunc(h.Withdraw)))
@@ -26,6 +27,19 @@ func (h *PeerHandlers) Register(mux *http.ServeMux, a *auth.AuthService) {
 	mux.Handle("GET /api/v1/p2p/config", RequireAuth(a, http.HandlerFunc(h.Config)))
 	mux.Handle("POST /api/v1/p2p/grants", RequireAuth(a, http.HandlerFunc(h.Grant)))
 	mux.Handle("POST /api/v1/p2p/grants/validate", RequireAuth(a, http.HandlerFunc(h.ValidateGrant)))
+}
+func (h *PeerHandlers) Allocate(w http.ResponseWriter, r *http.Request) {
+	var in p2p.AllocationInput
+	if err := h.decode(w, r, &in); err != nil {
+		peerError(w, err)
+		return
+	}
+	result, err := h.Service.Allocate(r.Context(), UserIDFromContext(r.Context()), in)
+	if err != nil {
+		peerError(w, err)
+		return
+	}
+	writeJSON(w, 200, result)
 }
 func (h *PeerHandlers) decode(w http.ResponseWriter, r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, p2p.MaxBodyBytes)
@@ -138,6 +152,8 @@ func peerError(w http.ResponseWriter, e error) {
 		return
 	}
 	switch {
+	case errors.Is(e, files.ErrSharingDisabled):
+		writeError(w, 409, e)
 	case errors.Is(e, auth.ErrUnauthorized), errors.Is(e, auth.ErrSessionRevoked), errors.Is(e, auth.ErrSessionExpired):
 		writeError(w, 401, e)
 	case errors.Is(e, files.ErrForbidden), errors.Is(e, auth.ErrDisabledAccount):
@@ -156,8 +172,9 @@ func peerError(w http.ResponseWriter, e error) {
 // NewRouterWithPeers extends the established constructor without changing its
 // call signature; existing chat/file callers continue to compile unchanged.
 func NewRouterWithPeers(cfg config.Config, a *auth.AuthService, g *groups.GroupService, c *chat.ChatService, ch *chat.Hub, f *files.FileService, p p2p.PeerService, ph *p2p.Hub) http.Handler {
-	mux := NewRouterWithServices(cfg, a, g, c, ch, f).(*http.ServeMux)
+	mux := http.NewServeMux()
+	mux.Handle("/", NewRouterWithServices(cfg, a, g, c, ch, f))
 	NewPeerHandlers(p).Register(mux, a)
 	mux.Handle("GET /api/v1/p2p/ws", RequireAuth(a, ph))
-	return mux
+	return withTrustedWebScheme(cfg.TrustedProxyCIDRs, mux)
 }

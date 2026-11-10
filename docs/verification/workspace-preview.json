@@ -1,0 +1,62 @@
+{
+  "fixtureOnly": true,
+  "errors": [],
+  "dimensions": [
+    {
+      "name": "workspace-chat",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    },
+    {
+      "name": "workspace-files",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    },
+    {
+      "name": "workspace-pool",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    },
+    {
+      "name": "workspace-transfers",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    },
+    {
+      "name": "workspace-settings",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    },
+    {
+      "name": "workspace-settings-compact",
+      "width": 720,
+      "scrollWidth": 720,
+      "height": 520,
+      "scrollHeight": 520
+    },
+    {
+      "name": "workspace-devices",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    },
+    {
+      "name": "workspace-audit",
+      "width": 1100,
+      "scrollWidth": 1100,
+      "height": 760,
+      "scrollHeight": 760
+    }
+  ]
+}

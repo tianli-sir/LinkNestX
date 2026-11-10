@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/linknestx/linknestx/server/internal/auth"
 	"github.com/linknestx/linknestx/server/internal/chat"
 	"github.com/linknestx/linknestx/server/internal/config"
@@ -161,6 +162,56 @@ func TestFileRoutesUploadPublishPromoteDownload(t *testing.T) {
 	if w = request("GET", "/api/v1/groups/"+g.ID+"/messages", owner.AccessToken, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"fileVersionId":"`+u.VersionID+`"`) {
 		t.Fatalf("attachment %d %s", w.Code, w.Body)
 	}
+
+	// Final wave: real composed HTTP handlers, with no listening socket.
+	if w = request("GET", "/api/v1/groups", admin.AccessToken, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"isMember":false`) {
+		t.Fatalf("admin directory %d %s", w.Code, w.Body)
+	}
+	if w = request("GET", "/api/v1/groups/"+g.ID+"/members", admin.AccessToken, nil); w.Code != 200 {
+		t.Fatalf("admin member list %d %s", w.Code, w.Body)
+	}
+	if w = request("PATCH", "/api/v1/files/"+u.FileID, owner.AccessToken, []byte(`{"name":"rename.pdf"}`)); w.Code != 403 {
+		t.Fatalf("employee edit %d", w.Code)
+	}
+	if w = request("PATCH", "/api/v1/files/"+u.FileID, admin.AccessToken, []byte(`{"name":"rename.pdf","listed":false}`)); w.Code != 204 {
+		t.Fatalf("unlist %d %s", w.Code, w.Body)
+	}
+	if w = request("GET", "/api/v1/files?groupId="+g.ID, owner.AccessToken, nil); w.Code != 200 || strings.TrimSpace(w.Body.String()) != "[]" {
+		t.Fatalf("origin unlisted %d %s", w.Code, w.Body)
+	}
+	if w = request("GET", "/api/v1/files/"+u.VersionID+"/chunks/"+hash, owner.AccessToken, nil); w.Code != 403 {
+		t.Fatalf("unlisted download %d", w.Code)
+	}
+	if w = request("GET", "/api/v1/groups/"+g.ID+"/messages", owner.AccessToken, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"attachmentStatus":"unlisted"`) || !strings.Contains(w.Body.String(), `"attachmentName":"report.dat"`) {
+		t.Fatalf("attachment metadata %d %s", w.Code, w.Body)
+	}
+	if w = request("GET", "/api/v1/files/"+u.FileID+"/versions", admin.AccessToken, nil); w.Code != 200 {
+		t.Fatalf("retained history %d", w.Code)
+	}
+	if w = request("PUT", "/api/v1/sharing-policies/pool/"+u.FileID, admin.AccessToken, []byte(`{"enabled":false,"maxConcurrent":2,"bandwidthLimitBps":1000}`)); w.Code != 204 {
+		t.Fatalf("policy %d %s", w.Code, w.Body)
+	}
+	if w = request("GET", "/api/v1/sharing-policies/pool/"+u.FileID, other.AccessToken, nil); w.Code != 403 {
+		t.Fatalf("policy read permission %d", w.Code)
+	}
+	if w = request("PATCH", "/api/v1/files/"+u.FileID, admin.AccessToken, []byte(`{"listed":true}`)); w.Code != 204 {
+		t.Fatalf("relist %d", w.Code)
+	}
+	for i := 0; i < 2; i++ {
+		task := uuid.NewString()
+		r := httptest.NewRequest("GET", "/api/v1/files/"+u.VersionID+"/chunks/"+hash, nil)
+		r.Header.Set("Authorization", "Bearer "+other.AccessToken)
+		r.Header.Set("X-Transfer-ID", task)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("policy-disabled HTTP %d", w.Code)
+		}
+		var n int64
+		if e = conn.QueryRow(`SELECT bytes FROM transfer_records WHERE task_id=? AND action='server.sent'`, task).Scan(&n); e != nil || n != int64(len(data)) {
+			t.Fatalf("task delivery %d %v", n, e)
+		}
+	}
 	if w = request("DELETE", "/api/v1/files/"+u.FileID, admin.AccessToken, nil); w.Code != 204 {
 		t.Fatalf("delete %d", w.Code)
 	}
@@ -177,7 +228,7 @@ func TestFileRoutesUploadPublishPromoteDownload(t *testing.T) {
 	if e = conn.QueryRow(`SELECT sum(bytes) FROM transfer_records WHERE action='server.sent'`).Scan(&sent); e != nil {
 		t.Fatal(e)
 	}
-	if received != 2*int64(len(data)) || sent != int64(len(data)) {
+	if received != 2*int64(len(data)) || sent != 3*int64(len(data)) {
 		t.Fatalf("audit received%d sent%d", received, sent)
 	}
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reserve-audit-export"
+description = "Enables the reserve_audit_export command without any pre-configured scope."
+commands.allow = ["reserve_audit_export"]
+
+[[permission]]
+identifier = "deny-reserve-audit-export"
+description = "Denies the reserve_audit_export command without any pre-configured scope."
+commands.deny = ["reserve_audit_export"]

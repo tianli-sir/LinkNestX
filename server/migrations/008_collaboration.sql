@@ -1,0 +1,20 @@
+CREATE TABLE account_allocator(singleton INTEGER PRIMARY KEY CHECK(singleton=1),next_number INTEGER NOT NULL);
+INSERT INTO account_allocator VALUES(1,10000000);
+CREATE TABLE profiles(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,account_number TEXT UNIQUE,display_name TEXT NOT NULL,avatar BLOB);
+CREATE TRIGGER profile_allocate AFTER INSERT ON profiles WHEN NEW.account_number IS NULL BEGIN
+ UPDATE profiles SET account_number=(WITH RECURSIVE candidates(n) AS (SELECT next_number FROM account_allocator UNION ALL SELECT n+1 FROM candidates WHERE EXISTS(SELECT 1 FROM users WHERE username=CAST(n AS TEXT)) OR EXISTS(SELECT 1 FROM profiles WHERE account_number=CAST(n AS TEXT))) SELECT CAST(max(n) AS TEXT) FROM candidates) WHERE user_id=NEW.user_id;
+ UPDATE account_allocator SET next_number=(SELECT CAST(account_number AS INTEGER)+1 FROM profiles WHERE user_id=NEW.user_id);
+END;
+INSERT INTO profiles(user_id,display_name) SELECT id,username FROM users ORDER BY created_at,id;
+CREATE TRIGGER user_profile AFTER INSERT ON users BEGIN INSERT INTO profiles(user_id,display_name) VALUES(NEW.id,NEW.username); END;
+CREATE TRIGGER user_number_collision BEFORE INSERT ON users WHEN EXISTS(SELECT 1 FROM profiles WHERE account_number=NEW.username) BEGIN SELECT RAISE(ABORT,'username collides with account number'); END;
+CREATE TRIGGER username_number_collision BEFORE UPDATE OF username ON users WHEN EXISTS(SELECT 1 FROM profiles WHERE account_number=NEW.username AND user_id<>NEW.id) BEGIN SELECT RAISE(ABORT,'username collides with account number'); END;
+CREATE TRIGGER immutable_account_number BEFORE UPDATE OF account_number ON profiles WHEN OLD.account_number IS NOT NULL AND NEW.account_number IS NOT OLD.account_number BEGIN SELECT RAISE(ABORT,'account number is immutable'); END;
+ALTER TABLE sessions ADD COLUMN client_type TEXT NOT NULL DEFAULT 'native' CHECK(client_type IN ('native','web'));
+ALTER TABLE sessions ADD COLUMN csrf_token TEXT NOT NULL DEFAULT '';
+CREATE TABLE friend_requests(id TEXT PRIMARY KEY,from_id TEXT NOT NULL REFERENCES users(id),to_id TEXT NOT NULL REFERENCES users(id),pair_low TEXT NOT NULL,pair_high TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('pending','accepted','rejected','cancelled')),created_at TEXT NOT NULL,CHECK(from_id<>to_id));
+CREATE UNIQUE INDEX friend_pending_pair ON friend_requests(pair_low,pair_high) WHERE status='pending';
+CREATE TABLE friendships(pair_low TEXT NOT NULL REFERENCES users(id),pair_high TEXT NOT NULL REFERENCES users(id),created_at TEXT NOT NULL,PRIMARY KEY(pair_low,pair_high),CHECK(pair_low<pair_high));
+CREATE TABLE direct_conversations(group_id TEXT PRIMARY KEY REFERENCES groups(id),pair_low TEXT NOT NULL REFERENCES users(id),pair_high TEXT NOT NULL REFERENCES users(id),UNIQUE(pair_low,pair_high),CHECK(pair_low<pair_high));
+CREATE TABLE message_reads(message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,read_at TEXT NOT NULL,PRIMARY KEY(message_id,user_id));
+CREATE INDEX message_reads_user ON message_reads(user_id,message_id);

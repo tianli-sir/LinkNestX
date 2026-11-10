@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/files"
 )
 
 // eligibility mirrors the file service's current read ACL (pool, group member,
@@ -15,10 +16,12 @@ const eligibility = ` FROM peer_sources p
  JOIN sessions s ON s.id=p.session_id AND s.user_id=p.user_id AND s.device_id=p.device_id
  JOIN users u ON u.id=p.user_id
  JOIN file_versions v ON v.id=p.version_id JOIN files f ON f.id=v.file_id
- WHERE u.disabled=0 AND u.must_change_password=0 AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday(?)
+ WHERE u.disabled=0 AND u.must_change_password=0 AND s.client_type='native' AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday(?)
  AND p.last_seen>=? AND f.deleted_at IS NULL AND v.status='published'
  AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday(?))
- AND (f.visibility='pool' OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=p.user_id)
+ AND COALESCE((SELECT sp.enabled FROM sharing_policies sp WHERE sp.scope=CASE WHEN f.visibility='pool' THEN 'pool' ELSE 'group' END AND sp.target_id=CASE WHEN f.visibility='pool' THEN f.id ELSE f.group_id END),1)=1
+ AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=f.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d JOIN group_members gm ON gm.group_id=d.group_id AND gm.user_id=p.user_id WHERE d.group_id=f.group_id AND p.user_id IN(d.pair_low,d.pair_high)))
+ AND ((f.visibility='pool' AND f.listed=1) OR (f.visibility<>'pool' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=f.group_id AND gm.user_id=p.user_id))
  OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=p.user_id AND r.name='admin'))`
 
 func (s *Service) Announce(ctx context.Context, actor string, in AnnounceInput) error {
@@ -28,6 +31,9 @@ func (s *Service) Announce(ctx context.Context, actor string, in AnnounceInput) 
 	manifest, err := s.files.Manifest(ctx, actor, in.VersionID)
 	if err != nil {
 		return err
+	}
+	if !manifest.SharingPolicy.Enabled {
+		return files.ErrSharingDisabled
 	}
 	seen := map[int]bool{}
 	indexes := append([]int{}, in.Indexes...)
@@ -165,6 +171,7 @@ func (s *Service) RecordConnection(ctx context.Context, a ConnectionAudit) error
 	return nil
 }
 func (s *Service) Cleanup(ctx context.Context) error {
+	s.allocations.cleanup(s.now())
 	_, err := s.db.ExecContext(ctx, `DELETE FROM peer_sources WHERE last_seen<? OR NOT EXISTS(SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=peer_sources.session_id AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday(?)) OR EXISTS(SELECT 1 FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=peer_sources.version_id AND (f.deleted_at IS NOT NULL OR v.status<>'published' OR (v.expires_at IS NOT NULL AND julianday(v.expires_at)<=julianday(?))))`, stamp(s.now().Add(-SourceLease)), stamp(s.now()), stamp(s.now()))
 	if err != nil {
 		return err

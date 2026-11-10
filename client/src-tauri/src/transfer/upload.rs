@@ -3,7 +3,7 @@ use crate::{Result, TransferError};
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::{io::SeekFrom, path::Path};
+use std::io::SeekFrom;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::sync::CancellationToken;
 
@@ -64,17 +64,14 @@ impl TransferService {
         Ok(Manifest {
             file_id: task.file_id.clone().unwrap_or_else(|| "pending".into()),
             version_id: "pending".into(),
-            name: Path::new(&task.path)
-                .file_name()
-                .and_then(|v| v.to_str())
-                .ok_or_else(|| TransferError::new("文件名无效"))?
-                .into(),
+            name: task.snapshot.name.clone(),
             size,
             sha256: format!("{:x}", digest.finalize()),
             chunk_size: DEFAULT_CHUNK_SIZE,
             chunks,
             expires_at: None,
             visibility: "group".into(),
+            sharing_policy: Default::default(),
         })
     }
     pub(crate) async fn upload(&self, task: &mut Task, cancel: &CancellationToken) -> Result<()> {
@@ -141,9 +138,13 @@ impl TransferService {
             .filter(|c| !missing[c.index])
             .map(|c| c.size)
             .sum();
+        if let Some(m) = super::metrics::observer(&task.owner, &task.snapshot.id) {
+            m.resumed(task.snapshot.bytes_completed);
+        }
         task.snapshot.state = TaskState::Transferring;
         self.persist(task)?;
         if session.completed {
+            self.cache.changed();
             task.snapshot.state = TaskState::Completed;
             return Ok(());
         }
@@ -173,22 +174,27 @@ impl TransferService {
             if hash(&bytes) != chunk.hash {
                 return Err(TransferError::new("源文件已更改，请重新创建上传任务"));
             }
+            let bandwidth_limit = self.policy.read().await.bandwidth_limit_bps;
             self.bandwidth
-                .wait(
-                    chunk.size,
-                    self.policy.read().await.bandwidth_limit_bps,
-                    cancel,
-                )
+                .wait(chunk.size, bandwidth_limit, cancel)
                 .await?;
             let chunk_path = format!(
                 "/api/v1/uploads/{}/chunks/{}",
                 session.upload_id, chunk.index
             );
-            let put =
-                self.auth
-                    .request_for(&task.owner, "PUT", &chunk_path, Some(bytes.clone()), false);
+            let put = self.auth.request_for_transfer(
+                &task.owner,
+                "PUT",
+                &chunk_path,
+                Some(bytes.clone()),
+                false,
+                Some(&task.snapshot.id),
+            );
             tokio::select! {_=cancel.cancelled()=>return Err(TransferError::new("传输已暂停")),response=put=>{response?;}}
             self.verified(task, chunk, &bytes).await?;
+            if let Some(m) = super::metrics::observer(&task.owner, &task.snapshot.id) {
+                m.credit(chunk.index, chunk.size, false);
+            }
             task.verified[chunk.index] = true;
             task.snapshot.bytes_completed += chunk.size;
             task.snapshot.active_sources = vec!["server".into()];
@@ -209,6 +215,7 @@ impl TransferService {
             ),
         )
         .await?;
+        self.cache.changed();
         task.snapshot.state = TaskState::Completed;
         Ok(())
     }

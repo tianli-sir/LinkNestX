@@ -54,6 +54,7 @@ type UploadSession struct {
 	Completed      bool   `json:"completed"`
 }
 type File struct {
+	Listed           bool       `json:"listed"`
 	ID               string     `json:"id"`
 	GroupID          string     `json:"groupId"`
 	Name             string     `json:"name"`
@@ -67,18 +68,19 @@ type File struct {
 	SHA256           string     `json:"sha256"`
 }
 type FileVersion struct {
-	FileID     string     `json:"fileId"`
-	VersionID  string     `json:"versionId"`
-	Name       string     `json:"name"`
-	Size       int64      `json:"size"`
-	SHA256     string     `json:"sha256"`
-	ChunkSize  int64      `json:"chunkSize"`
-	Chunks     []Chunk    `json:"chunks"`
-	ExpiresAt  *time.Time `json:"expiresAt"`
-	Visibility string     `json:"visibility"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	CreatedBy  string     `json:"createdBy"`
-	Status     string     `json:"status"`
+	SharingPolicy SharingPolicy `json:"sharingPolicy"`
+	FileID        string        `json:"fileId"`
+	VersionID     string        `json:"versionId"`
+	Name          string        `json:"name"`
+	Size          int64         `json:"size"`
+	SHA256        string        `json:"sha256"`
+	ChunkSize     int64         `json:"chunkSize"`
+	Chunks        []Chunk       `json:"chunks"`
+	ExpiresAt     *time.Time    `json:"expiresAt"`
+	Visibility    string        `json:"visibility"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	CreatedBy     string        `json:"createdBy"`
+	Status        string        `json:"status"`
 }
 type ListInput struct {
 	GroupID string
@@ -92,6 +94,7 @@ type FileService struct {
 	now        func() time.Time
 	storageMu  sync.RWMutex
 	chat       *chat.ChatService
+	observer   func()
 }
 
 func NewFileService(conn *sql.DB, a *auth.AuthService, store *ChunkStore, signingKey string, messages ...*chat.ChatService) *FileService {
@@ -157,6 +160,9 @@ func (s *FileService) StartUpload(ctx context.Context, actorID string, in StartU
 	}
 	defer tx.Rollback()
 	if err = activeActor(ctx, tx, actorID); err != nil {
+		return UploadSession{}, err
+	}
+	if err = groups.RequireSend(ctx, tx, actorID, in.GroupID); err != nil {
 		return UploadSession{}, err
 	}
 	if err = fileGroupAccess(ctx, tx, actorID, in.GroupID); err != nil {
@@ -262,6 +268,9 @@ func (s *FileService) upload(ctx context.Context, tx *sql.Tx, actorID, uploadID 
 		u.Completed = true
 		return u, nil
 	}
+	if err = groups.RequireSend(ctx, tx, actorID, f.groupID); err != nil {
+		return u, err
+	}
 	if expiry <= stamp(s.now()) {
 		return u, ErrUnavailable
 	}
@@ -278,4 +287,13 @@ func (s *FileService) upload(ctx context.Context, tx *sql.Tx, actorID, uploadID 
 		u.MissingIndexes = append(u.MissingIndexes, index)
 	}
 	return u, rows.Err()
+}
+
+func (s *FileService) SetChangeObserver(observer func()) { s.observer = observer }
+func (s *FileService) commitChange(tx *sql.Tx) error {
+	err := tx.Commit()
+	if err == nil && s.observer != nil {
+		s.observer()
+	}
+	return err
 }

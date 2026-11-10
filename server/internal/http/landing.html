@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="LinkNestX，自托管的团队聊天与文件协作空间。让群聊、私聊、已读回执、大文件传输与公共文件池在同一个工作区自然连接。">
+  <meta name="theme-color" content="#101e2b">
+  <title>LinkNestX · 让协作，自然连接</title>
+  <style>
+    :root{color-scheme:light;--ink:#152c3b;--muted:#536771;--paper:#f7f9f8;--white:#fff;--line:#dce5e2;--night:#101e2b;--mint:#b4f3d5;--green:#17644e;--radius:24px;--wide:1200px}
+
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:28px}
+    body{margin:0;color:var(--ink);background:var(--paper);font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:inherit;text-decoration:none}
+    a,summary{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+    a:focus-visible,summary:focus-visible{outline:3px solid #168a65;outline-offset:5px}
+    .dark a:focus-visible{outline-color:var(--mint)}
+    h1,h2,h3,p,figure{margin:0}
+    h1,h2,h3{line-height:1.3;text-wrap:balance}
+    h1,h2{letter-spacing:-.045em}
+    svg{display:block;flex:none}
+    .icon{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+    .symbols{position:absolute;width:0;height:0;overflow:hidden}
+    .wrap{width:min(var(--wide),calc(100% - 80px));margin-inline:auto}
+    .dark{color:var(--white);background:var(--night)}
+    .skip{position:absolute;z-index:9;top:8px;left:16px;padding:10px 18px;color:var(--ink);background:var(--mint);border-radius:8px;transform:translateY(-150%)}
+    .skip:focus{transform:translateY(0)}
+
+    .eyebrow{display:flex;align-items:center;gap:10px;color:var(--green);font-size:12px;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
+    .eyebrow:before{content:"";width:22px;height:1px;background:currentColor}
+    .dark .eyebrow{color:var(--mint)}
+    .button{display:inline-flex;min-height:52px;padding:12px 23px;align-items:center;justify-content:center;gap:12px;border:1px solid transparent;border-radius:10px;font-size:15px;font-weight:650;line-height:1.5;transition:background .18s,border-color .18s,box-shadow .18s}
+    .button .icon{width:18px;height:18px}
+    .button.primary{background:var(--mint);color:#153d30}
+    .button.primary:hover{background:#cef9e4;box-shadow:0 0 0 4px #b4f3d514}
+    .button.outline{border-color:#607282;color:var(--white);background:#ffffff04}
+    .button.outline:hover{background:#ffffff0b;border-color:#b0c3ce}
+    .button.solid{background:var(--green);color:var(--white)}
+    .button.solid:hover{background:#114e3d}
+    .button.light{background:var(--white);border-color:#acbdb5;color:var(--ink)}
+    .button.light:hover{background:#f3f7f4;border-color:var(--green)}
+    .actions{display:flex;flex-wrap:wrap;gap:12px}
+    .brand{display:inline-flex;align-items:center;gap:10px;font-size:23px;font-weight:740;letter-spacing:-.055em;white-space:nowrap}
+    .brand svg{width:32px;height:36px}
+    .brand-x{color:var(--mint)}
+
+    .header{min-height:100px;display:flex;align-items:center;justify-content:space-between;gap:32px;border-bottom:1px solid #ffffff1c}
+    .header nav{display:flex;align-items:center;gap:32px}
+    .header nav a{display:inline-flex;align-items:center;min-height:44px;color:#c6d3da;font-size:14px}
+    .header nav a:hover{color:var(--mint)}
+    .header .nav-cta{padding:0 17px;border:1px solid #576b78;border-radius:8px;color:white;gap:10px}
+    .header .nav-cta .icon{width:16px;height:16px}
+
+    .hero{position:relative;overflow:hidden;padding-bottom:36px;background-image:radial-gradient(ellipse at 78% 8%,#25494366,transparent 52%)}
+    .hero:before{content:"";position:absolute;pointer-events:none;inset:0;opacity:.32;background-image:linear-gradient(#b4f3d50b 1px,transparent 1px),linear-gradient(90deg,#b4f3d50b 1px,transparent 1px);background-size:80px 80px;mask-image:linear-gradient(transparent,black 35%,transparent)}
+    .hero>.wrap{position:relative}
+    .hero-copy{display:grid;grid-template-columns:1.1fr 1fr;gap:65px;align-items:end;padding:70px 0 58px}
+    .hero-copy .eyebrow{margin-bottom:25px}
+    h1{font-size:clamp(44px,4.8vw,68px);font-weight:650;line-height:1.17}
+    h1 em{font-style:normal;color:var(--mint)}
+    .hero-intro{padding:0 0 4px 32px}
+    .hero-intro p{max-width:400px;color:#bdcdd6;font-size:17px;line-height:1.9}
+    .hero-intro .actions{margin-top:26px}
+    .hero-meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:18px;color:#a9bec9;font-size:12px}
+    .hero-meta span{display:flex;align-items:center;gap:7px}
+    .hero-meta .icon{width:14px;height:14px}
+
+    .workspace{border:1px solid #546770;border-radius:16px;overflow:hidden;color:var(--ink);background:var(--white);box-shadow:0 28px 64px #050d1855,0 0 0 7px #ffffff04}
+    .window-bar{height:42px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 20px;color:#586d77;background:#f3f6f5;border-bottom:1px solid var(--line);font-size:11px}
+    .window-dots{display:flex;gap:6px}
+    .window-dots span{width:7px;height:7px;border-radius:50%;background:#c6d3cd}
+    .window-label{font-weight:600;letter-spacing:.03em}
+    .window-status{display:flex;align-items:center;gap:6px}
+    .status-dot{width:5px;height:5px;border-radius:100%;background:#258967}
+    .workspace-body{display:grid;grid-template-columns:60px 204px minmax(0,1fr) 240px;min-height:388px}
+    .app-rail{display:flex;align-items:center;flex-direction:column;gap:20px;padding:20px 9px 16px;background:#edf4f0;border-right:1px solid var(--line)}
+    .rail-mark{color:var(--green);font-size:18px;font-weight:800;margin-bottom:8px}
+    .rail-item{width:35px;height:35px;display:grid;place-items:center;border-radius:9px;color:#65786f}
+    .rail-item.current{background:#d4e9dc;color:var(--green)}
+    .rail-item .icon{width:18px;height:18px}
+    .rail-avatar{margin-top:auto;width:29px;height:29px;display:grid;place-items:center;background:#dce9e2;border-radius:9px;color:#345f4d;font-size:11px}
+    .conversation-list{padding:20px 11px;border-right:1px solid var(--line)}
+    .list-heading{display:flex;justify-content:space-between;font-size:14px;font-weight:700;padding-inline:6px}
+    .list-heading span{color:#5f756b;font-weight:400}
+    .demo-search{margin:14px 4px;padding:6px 10px;display:flex;gap:6px;align-items:center;background:#f4f7f5;color:#64786e;font-size:11px;border-radius:6px}
+    .demo-search .icon{width:13px;height:13px}
+    .conversation{padding:10px 8px;border-radius:8px;display:flex;gap:9px;align-items:center;margin-bottom:4px}
+    .conversation.active{background:#edf5f0}
+    .avatar{width:33px;height:33px;flex:none;display:grid;place-items:center;border-radius:10px;font-size:12px;color:#476b5a;background:#dcece2}
+    .avatar.blue{background:#e1eaf5;color:#496682}
+    .avatar.peach{background:#f5e8db;color:#856242}
+    .conversation-text{min-width:0;flex:1}
+    .conversation-text strong{display:block;font-size:11px;font-weight:600}
+    .conversation-text small{display:block;color:#60756c;font-size:10px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    .conversation-time{align-self:start;padding-top:3px;font-size:9px;color:#64766e}
+
+    .chat-preview{min-width:0;display:flex;flex-direction:column;background:#fff}
+    .chat-heading{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;border-bottom:1px solid var(--line)}
+    .chat-heading strong{font-size:13px}
+    .chat-heading small{display:block;font-size:10px;color:#65776e}
+    .chat-heading .icon{width:18px;height:18px;color:#5e7369}
+    .chat-messages{padding:14px 22px 10px}
+    .message{display:flex;gap:9px;align-items:start;margin-bottom:12px}
+    .message .avatar{width:27px;height:27px;font-size:10px;border-radius:8px}
+    .message-content{min-width:0}
+    .message-author{color:#62756a;font-size:9px;margin:0 0 4px}
+    .message-author span{margin-left:8px;color:#6c7f74}
+    .bubble{padding:8px 11px;border-radius:2px 9px 9px 9px;background:#f1f5f3;font-size:11px;line-height:1.65}
+    .file-message{min-width:230px;padding:11px 12px;border-radius:9px;border:1px solid #d8e4dc}
+    .file-title{display:flex;align-items:center;gap:10px}
+    .file-symbol{display:grid;place-items:center;background:#e6f1ea;width:32px;height:36px;border-radius:7px;color:var(--green)}
+    .file-symbol .icon{width:18px;height:18px}
+    .file-title strong{display:block;font-size:11px;font-weight:600}
+    .file-title small{color:#62766a;font-size:9px}
+    .demo-progress{height:4px;background:#e8eeea;border-radius:10px;overflow:hidden;margin-top:12px}
+    .demo-progress span{display:block;width:68%;height:100%;background:#4b9f78}
+    .demo-progress-caption{display:flex;justify-content:space-between;gap:8px;font-size:9px;margin-top:6px;color:#516c5b}
+    .message.reply{justify-content:end}
+    .message.reply .bubble{background:#dff0e5;border-radius:9px 2px 9px 9px}
+    .read-receipt{color:var(--green);text-align:right;font-size:9px;margin-top:3px}
+    .composer-preview{margin-top:auto;padding:10px 22px 14px;border-top:1px solid var(--line);color:#6b7f72;font-size:11px}
+    .composer-tools{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+    .composer-tools .icon{width:15px;height:15px}
+    .composer-bottom{display:flex;align-items:center;justify-content:space-between}
+    .send-preview{padding:3px 13px;color:#2e6149;background:#e1efe5;border-radius:5px;font-size:10px}
+    .file-preview{border-left:1px solid var(--line);background:#fbfcfb;padding:20px 17px}
+    .file-preview-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:650}
+    .file-preview-title .icon{width:15px;height:15px;color:var(--green)}
+    .file-preview>p{color:#65796d;font-size:10px;margin-top:6px}
+    .pool-row{display:flex;align-items:center;gap:9px;padding:16px 0;border-bottom:1px solid #e4ebe6}
+    .pool-row .icon{width:17px;height:17px;color:#63816c}
+    .pool-row strong{display:block;font-size:11px;font-weight:500}
+    .pool-row small{display:block;color:#657a6b;font-size:9px}
+    .pool-note{margin-top:30px;padding:12px;border-radius:9px;background:#eef4ef;font-size:10px;color:#4f6b58}
+    .preview-caption{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:19px;color:#9db2be;font-size:11px;letter-spacing:.02em}
+    .preview-caption span:first-child{color:#d2e0e6}
+
+    .benefit-strip{border-bottom:1px solid var(--line);background:#fff}
+    .benefit-strip .wrap{min-height:102px;display:grid;grid-template-columns:repeat(4,1fr);align-items:center;gap:28px}
+    .benefit{display:flex;align-items:center;gap:13px}
+    .benefit .icon{width:24px;height:24px;color:var(--green)}
+    .benefit strong{display:block;font-weight:600;font-size:14px}
+    .benefit span{display:block;font-size:12px;color:var(--muted)}
+    .section{padding-block:112px}
+    .section-heading{display:grid;grid-template-columns:1.4fr 1fr;gap:80px;align-items:end;margin-bottom:48px}
+    .section-heading h2{font-size:clamp(30px,3.1vw,42px);margin-top:16px;font-weight:650}
+    .section-heading>p{color:var(--muted);max-width:360px;font-size:16px;line-height:1.9;margin-left:auto}
+    .features-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+    .feature-card{min-width:0;border:1px solid var(--line);background:#fff;border-radius:var(--radius);overflow:hidden}
+    .feature-copy{padding:32px 36px 24px}
+    .feature-label{display:flex;align-items:center;gap:9px;margin-bottom:15px;font-size:12px;color:var(--green);font-weight:650}
+    .feature-label .icon{width:17px;height:17px}
+    .feature-card h3{font-size:25px;font-weight:650;letter-spacing:-.03em;margin-bottom:12px}
+    .feature-card p{color:var(--muted);font-size:14px;line-height:1.9;max-width:420px}
+    .receipt-art{display:flex;align-items:center;justify-content:center;min-height:188px;padding:20px 36px 32px;gap:20px;background:linear-gradient(180deg,#fff,#f2f7f3)}
+    .receipt-avatar{display:grid;place-items:center;width:45px;height:45px;border-radius:15px;font-size:16px;background:#d8e9de;color:#2d6548}
+    .receipt-bubble{padding:17px 21px;background:#fff;box-shadow:0 9px 30px #1837260b;border:1px solid #dfebe2;border-radius:14px 14px 14px 2px;color:#314c3a;font-size:14px}
+    .receipt-bottom{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:13px}
+    .mini-avatars{display:flex;padding-left:5px}
+    .mini-avatars span{width:24px;height:24px;border:2px solid white;margin-left:-5px;display:grid;place-items:center;border-radius:50%;font-size:8px;color:#355b48;background:#d8e9de}
+    .mini-avatars span:nth-child(2){background:#e0e8f5;color:#456180}
+    .mini-avatars span:nth-child(3){background:#f4e5d6;color:#705b43}
+    .receipt-bottom small{color:var(--green);font-size:11px;display:flex;align-items:center;gap:5px}
+    .receipt-bottom .icon{width:14px;height:14px}
+    .pool-art{padding:6px 36px 32px;background:linear-gradient(180deg,#fff,#f1f5f8)}
+    .pool-file{display:flex;align-items:center;gap:12px;padding:14px 17px;margin-bottom:10px;background:white;border:1px solid #dce6e9;border-radius:11px;box-shadow:0 5px 18px #17354a05}
+    .pool-file:last-child{margin-bottom:0}
+    .pool-file .icon{width:21px;height:21px;color:#4d798f}
+    .pool-file strong{font-size:12px;font-weight:600;display:block}
+    .pool-file small{font-size:10px;color:#637783;display:block}
+    .pool-file>span{margin-left:auto;border:1px solid #dce8e1;padding:2px 8px;border-radius:5px;font-size:10px;color:#47705a;white-space:nowrap}
+    .small-features{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:40px}
+    .small-feature{display:flex;gap:14px;align-items:start}
+    .small-feature>.icon{margin-top:3px;color:var(--green)}
+    .small-feature h3{font-size:16px;font-weight:650;margin-bottom:6px}
+    .small-feature p{color:var(--muted);font-size:13px;line-height:1.9}
+
+    .transfer-section{padding-block:0 112px}
+    .transfer-panel{display:grid;grid-template-columns:.95fr 1.05fr;gap:24px;border-radius:28px;padding:58px 56px;align-items:center;background:var(--night)}
+    .transfer-copy h2{font-size:clamp(28px,3vw,39px);line-height:1.4;margin:17px 0 20px;font-weight:600}
+    .transfer-copy>p{color:#b9cad3;font-size:14px;max-width:365px;line-height:1.9}
+    .transfer-facts{display:flex;gap:40px;margin-top:30px}
+    .transfer-facts strong{display:block;font-size:30px;font-weight:500;line-height:1.2;letter-spacing:-.04em;color:var(--mint)}
+    .transfer-facts strong small{font-size:15px;margin-left:4px}
+    .transfer-facts span{font-size:11px;color:#b2c6cf}
+    .network-figure{min-width:0;padding:12px 0 0 8px}
+    .network-svg{width:100%;height:auto}
+    .network-figure figcaption{color:#a7beca;text-align:center;font-size:11px;margin-top:2px}
+    .own-section{border-top:1px solid var(--line);background:#edf3ef}
+    .own-section .section-heading{margin-bottom:44px}
+    .ownership-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:40px}
+    .ownership-card{border-top:1px solid #b8cbbf;padding-top:25px}
+    .ownership-number{display:block;color:#527261;font-size:12px;letter-spacing:.04em;margin-bottom:18px}
+    .ownership-card h3{font-size:20px;margin-bottom:12px;font-weight:600}
+    .ownership-card p{font-size:14px;color:#50685a;line-height:1.95}
+
+    .start-section{background:#fff}
+    .start-section .section-heading{margin-bottom:36px}
+    .start-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:24px}
+    .start-card{padding:36px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;position:relative}
+    .start-card.featured{border-color:#aecabb;background:#f1f7f3}
+    .platform-icon{display:grid;place-items:center;width:46px;height:46px;margin-bottom:24px;background:#e3eee7;border-radius:13px;color:var(--green)}
+    .start-card h3{font-size:25px;margin-bottom:10px;font-weight:650}
+    .start-card .intro{color:var(--muted);font-size:14px}
+    .recommended{position:absolute;right:32px;top:36px;padding:4px 10px;background:#dcece2;color:var(--green);font-size:11px;border-radius:6px}
+    .capabilities{list-style:none;margin:24px 0;padding:0;display:grid;gap:10px;font-size:14px}
+    .capabilities li{display:flex;align-items:center;gap:10px}
+    .capabilities .icon{width:17px;height:17px;color:var(--green)}
+    .start-card .button{width:100%}
+    .start-note{margin-top:14px;font-size:12px;color:#5b7065}
+    .account-note{display:flex;gap:9px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:26px;color:var(--muted);font-size:13px;text-align:center}
+    .account-note .icon{width:16px;height:16px}
+    .faq-section{padding-block:88px 100px;background:#fff;border-top:1px solid var(--line)}
+    .faq-grid{display:grid;grid-template-columns:.75fr 1.25fr;gap:100px}
+    .faq-heading h2{font-size:34px;margin-top:16px;font-weight:650}
+    .faq-heading p{color:var(--muted);font-size:14px;margin-top:16px}
+    .faq-list details{border-bottom:1px solid var(--line)}
+    .faq-list details:first-child{border-top:1px solid var(--line)}
+    .faq-list summary{list-style:none;display:flex;justify-content:space-between;gap:20px;align-items:center;padding:21px 0;cursor:pointer;font-size:15px;font-weight:600}
+    .faq-list summary::-webkit-details-marker{display:none}
+    .faq-list summary:after{content:"+";font-size:23px;font-weight:400;color:#527365;line-height:1}
+    .faq-list details[open] summary:after{content:"−"}
+    .faq-list details p{padding:0 30px 22px 0;font-size:14px;color:var(--muted);line-height:1.95}
+    .closing{padding:68px 0}
+    .closing .wrap{display:flex;align-items:center;justify-content:space-between;gap:40px}
+    .closing h2{font-size:clamp(29px,3vw,40px);margin-bottom:12px;font-weight:600}
+    .closing p{color:#b5c7d1;font-size:14px}
+    .footer{border-top:1px solid #ffffff1c}
+    .footer .wrap{padding-block:27px;display:flex;justify-content:space-between;align-items:center;gap:24px}
+    .footer .brand{font-size:19px}
+    .footer .brand svg{width:26px;height:29px}
+    .footer p{color:#adc0cb;font-size:11px}
+    .footer nav{display:flex;align-items:center;gap:25px;color:#b7c9d3;font-size:12px}
+    .footer nav a{display:flex;align-items:center;min-height:44px}
+    .footer nav a:hover{color:var(--mint)}
+
+    @media(min-width:1500px){.hero-copy{padding-top:88px;padding-bottom:68px}
+    }
+
+    @media(max-width:1100px){.wrap{width:calc(100% - 56px)}
+    .hero-copy{gap:28px}
+    .hero-intro{padding-left:0}
+    .workspace-body{grid-template-columns:54px 175px minmax(0,1fr) 200px}
+    .file-preview{padding:20px 12px}
+    .chat-heading,.chat-messages,.composer-preview{padding-left:16px;padding-right:16px}
+    .transfer-panel{padding:42px 36px}
+    .section-heading{gap:40px}
+    .small-features{gap:24px}
+    .faq-grid{gap:60px}
+    }
+
+    @media(max-width:900px){.hero-copy{grid-template-columns:1fr;gap:24px;padding:56px 0 40px}
+    h1{font-size:56px}
+    .hero-intro{display:grid;grid-template-columns:1fr auto;column-gap:28px;align-items:center}
+    .hero-intro p{font-size:15px}
+    .hero-intro .actions{margin:0}
+    .hero-meta{grid-column:1/-1}
+    .workspace-body{grid-template-columns:50px 175px minmax(0,1fr)}
+    .file-preview{display:none}
+    .benefit-strip .wrap{grid-template-columns:1fr 1fr;gap:24px;padding-block:26px}
+    .section{padding-block:80px}
+    .section-heading{gap:32px}
+    .section-heading>p{font-size:14px}
+    .feature-copy{padding:28px 26px 20px}
+    .feature-card h3{font-size:22px}
+    .receipt-art{padding:20px 22px 28px;gap:10px}
+    .receipt-avatar{display:none}
+    .pool-art{padding:6px 25px 28px}
+    .small-features{grid-template-columns:1fr;gap:22px}
+    .transfer-section{padding-bottom:80px}
+    .transfer-panel{padding:36px;gap:24px}
+    .transfer-facts{gap:24px}
+    .network-figure{padding:0}
+    .ownership-grid{gap:24px}
+    .ownership-card h3{font-size:18px}
+    .start-card{padding:28px}
+    .recommended{top:28px;right:28px}
+    .faq-grid{grid-template-columns:.7fr 1.3fr;gap:40px}
+    }
+
+    @media(max-width:640px){.wrap{width:calc(100% - 40px)}
+    .header{gap:16px;flex-wrap:wrap;min-height:auto;padding:22px 0 13px}
+    .brand{font-size:22px}
+    .brand svg{width:28px;height:32px}
+    .header nav{width:100%;justify-content:space-between;gap:8px}
+    .header nav a{font-size:12px;min-height:44px}
+    .header .nav-cta{padding-inline:12px;gap:5px}
+    .hero-copy{padding:40px 0 30px;gap:23px}
+    .hero-copy .eyebrow{font-size:10px;margin-bottom:20px;letter-spacing:.12em}
+    h1{font-size:clamp(40px,10.5vw,56px);line-height:1.24}
+    .hero-intro{display:block}
+    .hero-intro p{font-size:15px;max-width:none}
+    .hero-intro .actions{margin-top:22px;gap:9px}
+    .hero-intro .button{font-size:13px;padding:12px 17px;gap:8px}
+    .hero-meta{gap:14px;font-size:10px;margin-top:17px}
+    .hero-meta span:last-child{display:none}
+    .workspace{border-radius:12px}
+    .window-bar{height:36px;padding:0 12px;font-size:9px;gap:9px}
+    .window-label{font-size:9px}
+    .window-status{display:none}
+    .workspace-body{display:block;min-height:0}
+    .app-rail,.conversation-list{display:none}
+    .chat-heading{padding:12px 15px}
+    .chat-messages{padding:13px 15px 4px}
+    .chat-heading strong{font-size:12px}
+    .file-message{min-width:0;width:226px;max-width:100%}
+    .chat-messages .bubble{font-size:10px}
+    .composer-preview{padding:10px 15px 12px}
+    .preview-caption{font-size:10px;line-height:1.8;margin-top:16px}
+    .hero{padding-bottom:25px}
+    .benefit-strip .wrap{gap:22px 15px;padding-block:25px}
+    .benefit{gap:9px}
+    .benefit .icon{width:20px;height:20px}
+    .benefit strong{font-size:12px}
+    .benefit span{font-size:10px}
+    .section{padding-block:64px}
+    .section-heading{grid-template-columns:1fr;gap:19px;margin-bottom:30px}
+    .section-heading h2{font-size:30px;margin-top:14px}
+    .section-heading>p{margin:0;max-width:none;font-size:14px}
+    .eyebrow{font-size:10px}
+    .features-grid{grid-template-columns:1fr;gap:18px}
+    .feature-copy{padding:27px 25px 19px}
+    .feature-card h3{font-size:23px}
+    .feature-card p{font-size:14px}
+    .receipt-art{min-height:168px}
+    .receipt-avatar{display:grid;width:36px;height:36px;border-radius:12px;font-size:13px}
+    .receipt-bubble{padding:14px 15px;font-size:12px}
+    .pool-art{padding:6px 24px 26px}
+    .small-features{margin-top:29px;gap:23px}
+    .small-feature{gap:12px}
+    .transfer-section{padding-bottom:64px}
+    .transfer-panel{grid-template-columns:1fr;padding:30px 25px;gap:15px;border-radius:22px}
+    .transfer-copy h2{font-size:29px}
+    .transfer-copy>p{font-size:14px}
+    .transfer-facts{gap:40px;margin-top:24px}
+    .transfer-facts strong{font-size:28px}
+    .network-figure{margin-inline:-10px}
+    .network-figure figcaption{font-size:10px}
+    .ownership-grid{grid-template-columns:1fr;gap:28px}
+    .ownership-card{padding-top:19px}
+    .ownership-number{margin-bottom:12px}
+    .ownership-card h3{font-size:20px}
+    .start-grid{grid-template-columns:1fr;gap:18px}
+    .start-card{padding:27px 25px}
+    .start-card h3{font-size:24px}
+    .account-note{align-items:start;justify-content:start;text-align:left;font-size:12px;flex-wrap:nowrap}
+    .account-note .icon{margin-top:3px}
+    .faq-section{padding-block:58px 64px}
+    .faq-grid{grid-template-columns:1fr;gap:30px}
+    .faq-heading h2{font-size:30px}
+    .faq-heading p{margin-top:12px}
+    .faq-list summary{font-size:14px;padding-block:20px}
+    .faq-list details p{padding-right:10px;font-size:14px}
+    .closing{padding-block:49px}
+    .closing .wrap{display:block}
+    .closing h2{font-size:29px}
+    .closing p{font-size:13px}
+    .closing .button{margin-top:25px}
+    .footer .wrap{flex-wrap:wrap;gap:10px 22px;padding-block:22px}
+    .footer p{order:3;width:100%;font-size:10px}
+    .footer nav{gap:17px;font-size:11px;margin-left:auto}
+    }
+
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}
+    *,*:before,*:after{transition:none!important;animation:none!important}
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳至主要内容</a>
+  <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="mark" viewBox="0 0 32 36"><path d="M5 8 16 2l11 6v13l-11 7L5 21Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m5 8 11 7 11-7M16 15v13M5 15l11 7 11-7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="33" r="2" fill="currentColor"/></symbol>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></symbol>
+    <symbol id="chat" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H4l1-4a8 8 0 1 1 15-4Z"/><path d="M8 10h8m-8 4h5"/></symbol>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7V5h6l3 3h9v12H3V7Z"/><path d="M3 8h9"/></symbol>
+    <symbol id="file" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5V3Z"/><path d="M14 3v6h5M8 13h8m-8 4h5"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="check-double" viewBox="0 0 24 24"><path d="m2 12 4 4L16 6m-4 9 2 2L24 7"/></symbol>
+    <symbol id="shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 4-5 8-8 9-3-1-8-5-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="monitor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M9 21h6m-3-5v5"/></symbol>
+    <symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></symbol>
+    <symbol id="users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-4a6 6 0 0 1 12 0v4m1-17a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5v2"/></symbol>
+    <symbol id="transfer-icon" viewBox="0 0 24 24"><path d="M7 3v17m-4-4 4 4 4-4M17 21V4m-4 4 4-4 4 4"/></symbol>
+    <symbol id="link" viewBox="0 0 24 24"><path d="m9 15 6-6m-5-4 1-1a5 5 0 0 1 7 7l-2 2m-2 6-1 1a5 5 0 0 1-7-7l2-2"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+    <symbol id="smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 9h.01M16 9h.01M8 14a4 4 0 0 0 8 0"/></symbol>
+    <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01m4-11h6m-6 11h6"/></symbol>
+  </svg>
+  <header class="dark"><div class="wrap header"><a class="brand" href="#main" aria-label="LinkNestX 首页"><svg aria-hidden="true"><use href="#mark"/></svg><span>LinkNest<span class="brand-x">X</span></span></a><nav aria-label="主要导航"><a href="#features">产品能力</a><a href="#transfer">文件协作</a><a href="#start">开始使用</a><a class="nav-cta" href="/app/">进入网页版<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a></nav></div></header>
+  <main id="main" tabindex="-1">
+    <section class="hero dark" aria-labelledby="hero-title"><div class="wrap">
+      <div class="hero-copy"><div><p class="eyebrow">YOUR TEAM. YOUR SPACE.</p><h1 id="hero-title">让协作，<br><em>自然连接。</em></h1></div><div class="hero-intro"><p>消息聊得明白，文件传得顺畅。<br>将团队沟通与文件协作放在一起，<br>把重要的工作，留在自己的空间。</p><div class="actions"><a class="button primary" href="/downloads"><svg class="icon" aria-hidden="true"><use href="#download"/></svg>下载桌面客户端</a><a class="button outline" href="/app/">打开网页版<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a></div><div class="hero-meta"><span><svg class="icon" aria-hidden="true"><use href="#monitor"/></svg>Windows · macOS</span><span><svg class="icon" aria-hidden="true"><use href="#server"/></svg>自主部署</span><span><svg class="icon" aria-hidden="true"><use href="#shield"/></svg>团队专属空间</span></div></div></div>
+      <figure aria-label="LinkNestX 协作工作区概念示意，使用示例消息与示例传输数据"><div class="workspace"><div class="window-bar"><div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div><span class="window-label">LinkNestX · 团队工作区</span><span class="window-status"><span class="status-dot"></span>界面示意</span></div><div class="workspace-body" aria-hidden="true">
+        <div class="app-rail"><span class="rail-mark">N</span><span class="rail-item current"><svg class="icon"><use href="#chat"/></svg></span><span class="rail-item"><svg class="icon"><use href="#users"/></svg></span><span class="rail-item"><svg class="icon"><use href="#folder"/></svg></span><span class="rail-item"><svg class="icon"><use href="#transfer-icon"/></svg></span><span class="rail-avatar">我</span></div>
+        <div class="conversation-list"><div class="list-heading">消息<span>＋</span></div><div class="demo-search"><svg class="icon"><use href="#search"/></svg>搜索会话</div><div class="conversation active"><div class="avatar">创</div><div class="conversation-text"><strong>创意协作组</strong><small>我：收到，一起把它做好。</small></div><span class="conversation-time">10:24</span></div><div class="conversation"><div class="avatar blue">林</div><div class="conversation-text"><strong>林晓</strong><small>资料已经整理好了</small></div><span class="conversation-time">09:46</span></div><div class="conversation"><div class="avatar peach">产</div><div class="conversation-text"><strong>产品讨论</strong><small>今天一起看一下新方案</small></div><span class="conversation-time">昨天</span></div></div>
+        <div class="chat-preview"><div class="chat-heading"><div><strong>创意协作组</strong><small>让每个好想法，都有回应</small></div><svg class="icon"><use href="#users"/></svg></div><div class="chat-messages"><div class="message"><div class="avatar blue">林</div><div class="message-content"><div class="message-author">林晓<span>10:22</span></div><div class="bubble">这次的项目资料整理好了，大家可以开始啦。</div></div></div><div class="message"><div class="avatar blue">林</div><div class="message-content"><div class="file-message"><div class="file-title"><span class="file-symbol"><svg class="icon"><use href="#file"/></svg></span><div><strong>品牌设计资料.zip</strong><small>2.4 GB · 项目文件</small></div></div><div class="demo-progress"><span></span></div><div class="demo-progress-caption"><span>下载中 · 68%</span><span>查看传输进度</span></div></div></div></div><div class="message reply"><div class="message-content"><div class="bubble">收到，一起把它做好。</div><div class="read-receipt">3 人已读</div></div><div class="avatar">我</div></div></div><div class="composer-preview"><div class="composer-tools"><svg class="icon"><use href="#smile"/></svg><svg class="icon"><use href="#folder"/></svg></div><div class="composer-bottom"><span>写下想法，或拖入文件…</span><span class="send-preview">发送</span></div></div></div>
+        <div class="file-preview"><div class="file-preview-title"><svg class="icon"><use href="#folder"/></svg>公共文件池</div><p>常用资料，随时找到</p><div class="pool-row"><svg class="icon"><use href="#file"/></svg><div><strong>团队品牌手册.pdf</strong><small>长期保留 · 管理员维护</small></div></div><div class="pool-row"><svg class="icon"><use href="#folder"/></svg><div><strong>项目交付模板.zip</strong><small>长期保留 · 管理员维护</small></div></div><div class="pool-row"><svg class="icon"><use href="#file"/></svg><div><strong>新同事入职指南.pdf</strong><small>长期保留 · 管理员维护</small></div></div><div class="pool-note">让重要资料沉淀下来，<br>让下一次协作更轻松。</div></div>
+      </div></div><figcaption class="preview-caption"><span>从一句消息，到一次交付。</span><span>工作区概念示意 · 消息、文件与传输数据均为示例</span></figcaption></figure>
+    </div></section>
+    <div class="benefit-strip"><div class="wrap"><div class="benefit"><svg class="icon" aria-hidden="true"><use href="#chat"/></svg><div><strong>沟通有回应</strong><span>群聊、私聊与已读回执</span></div></div><div class="benefit"><svg class="icon" aria-hidden="true"><use href="#transfer-icon"/></svg><div><strong>文件有去处</strong><span>大文件与多源并行传输</span></div></div><div class="benefit"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg><div><strong>资料有积累</strong><span>团队共享的公共文件池</span></div></div><div class="benefit"><svg class="icon" aria-hidden="true"><use href="#server"/></svg><div><strong>空间由你掌握</strong><span>部署在自己的服务器</span></div></div></div></div>
+    <!-- Product capabilities -->
+    <section class="section wrap" id="features" aria-labelledby="features-title"><div class="section-heading"><div><p class="eyebrow">01 / BETTER TOGETHER</p><h2 id="features-title">好协作，<br>从少一点切换开始。</h2></div><p>讨论在这里发生，资料在这里汇集。<br>不用翻找散落的消息和文件，<br>让团队围绕同一件事，一起向前。</p></div><div class="features-grid">
+      <article class="feature-card"><div class="feature-copy"><div class="feature-label"><svg class="icon" aria-hidden="true"><use href="#chat"/></svg>让沟通更清晰</div><h3>发出消息，也知道已被看见。</h3><p>群聊同步进展，私聊深入沟通。实际查看消息后才记录已读，群里谁已经看过，点开就知道。</p></div><div class="receipt-art" aria-hidden="true"><div class="receipt-avatar">周</div><div><div class="receipt-bubble">最终方案已经确认，准备开始吧。</div><div class="receipt-bottom"><div class="mini-avatars"><span>林</span><span>陈</span><span>许</span></div><small><svg class="icon"><use href="#check-double"/></svg>3 人已读</small></div></div></div></article>
+      <article class="feature-card"><div class="feature-copy"><div class="feature-label"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg>让资料有归属</div><h3>重要文件，不必反复问。</h3><p>管理员将常用资料放入公共文件池，也能把聊天里的好文件收录进来。登录后的员工随时查找、下载。</p></div><div class="pool-art" aria-hidden="true"><div class="pool-file"><svg class="icon"><use href="#file"/></svg><div><strong>团队品牌手册.pdf</strong><small>统一规范，每次协作都有依据</small></div><span>长期保留</span></div><div class="pool-file"><svg class="icon"><use href="#folder"/></svg><div><strong>项目交付模板.zip</strong><small>常用模板，打开就能开始</small></div><span>长期保留</span></div></div></article>
+    </div><div class="small-features"><div class="small-feature"><svg class="icon" aria-hidden="true"><use href="#users"/></svg><div><h3>找到对的人</h3><p>独立数字账号与个人头像，按号码添加好友，申请通过后开启私聊。</p></div></div><div class="small-feature"><svg class="icon" aria-hidden="true"><use href="#link"/></svg><div><h3>文件直接进入对话</h3><p>桌面端拖拽或粘贴文件即可准备发送，上传与下载进度就在消息旁。</p></div></div><div class="small-feature"><svg class="icon" aria-hidden="true"><use href="#clock"/></svg><div><h3>传输进度心里有数</h3><p>实时速率、剩余时间与完成用时集中呈现，断点恢复接着上次继续。</p></div></div></div></section>
+    <!-- Multi-source transfer: illustrative, never a live metric -->
+    <section class="transfer-section wrap" id="transfer" aria-labelledby="transfer-title"><div class="transfer-panel dark"><div class="transfer-copy"><p class="eyebrow">02 / CONNECTED BY DESIGN</p><h2 id="transfer-title">文件很大，<br>协作不用停下来等。</h2><p>客户端与服务器一起参与传输，从多个可用来源并行取得不同分块。已收到的部分也能参与后续传输，让每一次连接都有价值。</p><div class="transfer-facts"><div><strong>20<small>GB</small></strong><span>桌面端单文件上限</span></div><div><strong>多源<small>并行</small></strong><span>服务器与客户端协同传输</span></div></div></div><figure class="network-figure"><svg class="network-svg" viewBox="0 0 480 310" role="img" aria-labelledby="network-title network-desc"><title id="network-title">多源文件传输示意</title><desc id="network-desc">服务器、客户端 A 和客户端 B 将各自已有的不同文件分块传给同一个接收客户端，接收端合并为完整文件。图中是原理示意，不代表实时传输状态。</desc><defs><linearGradient id="path-fade" x1="0" x2="1"><stop stop-color="#6fbaa0"/><stop offset="1" stop-color="#b4f3d5"/></linearGradient></defs><g fill="none" stroke="#2c4654" stroke-width="1"><circle cx="330" cy="155" r="119"/><circle cx="330" cy="155" r="88"/></g><g fill="none" stroke="url(#path-fade)" stroke-width="1.5" stroke-dasharray="4 5"><path d="M119 58h55q30 0 45 29l35 67h35"/><path d="M119 155h170"/><path d="M119 252h55q30 0 45-29l35-67h35"/></g><g fill="#173b37" stroke="#4f8b76"><rect x="27" y="24" width="92" height="67" rx="13"/><rect x="27" y="122" width="92" height="67" rx="13"/><rect x="27" y="219" width="92" height="67" rx="13"/></g><g fill="none" stroke="#b4f3d5" stroke-width="1.5"><rect x="61" y="37" width="24" height="8" rx="2"/><rect x="61" y="49" width="24" height="8" rx="2"/><path d="M66 41h2m-2 12h2"/><rect x="59" y="135" width="28" height="18" rx="3"/><path d="M68 159h10m-5-6v6"/><rect x="59" y="232" width="28" height="18" rx="3"/><path d="M68 256h10m-5-6v6"/></g><g fill="#c8ddd5" font-size="10" text-anchor="middle" font-family="system-ui,sans-serif"><text x="73" y="76">服务器</text><text x="73" y="175">客户端 A</text><text x="73" y="272">客户端 B</text></g><g fill="#b4f3d5"><rect x="151" y="52" width="17" height="12" rx="3"/><rect x="171" y="149" width="17" height="12" rx="3"/><rect x="151" y="246" width="17" height="12" rx="3"/></g><rect x="282" y="111" width="96" height="88" rx="16" fill="#b4f3d5"/><g fill="none" stroke="#23513f" stroke-width="1.6"><path d="M315 128h20l9 9v33h-29Z"/><path d="M335 128v10h9M322 149h15m-15 7h15"/></g><text x="330" y="185" fill="#214d3b" text-anchor="middle" font-size="10" font-family="system-ui,sans-serif">接收客户端</text><g><rect x="287" y="213" width="15" height="7" rx="2" fill="#b4f3d5"/><rect x="306" y="213" width="15" height="7" rx="2" fill="#8fb8e4"/><rect x="325" y="213" width="15" height="7" rx="2" fill="#dfc89c"/><rect x="344" y="213" width="15" height="7" rx="2" fill="#b4f3d5"/><rect x="363" y="213" width="10" height="7" rx="2" fill="#456258"/></g><text x="330" y="241" text-anchor="middle" fill="#b7cdd6" font-size="11" font-family="system-ui,sans-serif">分块汇合，完整抵达</text></svg><figcaption>传输原理示意 · 实际速率取决于网络与可用来源</figcaption></figure></div></section>
+    <!-- Self-hosting and retention -->
+    <section class="section own-section" aria-labelledby="own-title"><div class="wrap"><div class="section-heading"><div><p class="eyebrow">03 / YOUR SPACE, YOUR RULES</p><h2 id="own-title">属于团队的资料，<br>也拥有自己的家。</h2></div><p>由自己的服务器承载消息和文件，<br>用明确的账号与保留规则，<br>照顾协作中的每一个日常。</p></div><div class="ownership-grid"><article class="ownership-card"><span class="ownership-number">01 — 专属空间</span><h3>部署在哪里，由你决定。</h3><p>消息记录、文件及传输记录保存在自有服务器。客户端绑定企业服务，员工登录即可开始协作。</p></article><article class="ownership-card"><span class="ownership-number">02 — 有序访问</span><h3>团队的内容，给对的人。</h3><p>员工账号由管理员创建，群文件遵循成员权限。设备会话可撤销，公共文件池仅向已登录员工开放。</p></article><article class="ownership-card"><span class="ownership-number">03 — 清晰保留</span><h3>日常会流转，资料能沉淀。</h3><p>普通文件默认保留 30 天，到期自动删除。公共池文件长期保留，由管理员维护；聊天与审计记录保留两年。</p></article></div></div></section>
+    <!-- Both entry points are served by this instance -->
+    <section class="section start-section" id="start" aria-labelledby="start-title"><div class="wrap"><div class="section-heading"><div><p class="eyebrow">04 / MAKE YOURSELF AT HOME</p><h2 id="start-title">选择入口，开始连接。</h2></div><p>日常工作交给桌面客户端。<br>临时查看消息和小文件，浏览器也能轻松接上。</p></div><div class="start-grid"><article class="start-card featured"><span class="recommended">推荐日常使用</span><div class="platform-icon"><svg class="icon" aria-hidden="true"><use href="#monitor"/></svg></div><h3>桌面客户端</h3><p class="intro">Windows · macOS，为持续协作而准备。</p><ul class="capabilities"><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>完整聊天与文件上传、下载</li><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>多源传输、断点恢复与后台任务</li><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>关闭窗口后留在托盘，继续传输</li><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>新版本后台准备，就绪后提醒安装</li></ul><a class="button solid" href="/downloads"><svg class="icon" aria-hidden="true"><use href="#download"/></svg>查看客户端下载</a><p class="start-note">安装包与支持的平台，以下载页当前发布内容为准。</p></article><article class="start-card"><div class="platform-icon"><svg class="icon" aria-hidden="true"><use href="#globe"/></svg></div><h3>轻量网页版</h3><p class="intro">不用安装，为偶尔访问保留一个入口。</p><ul class="capabilities"><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>同一账号登录，接续群聊与私聊</li><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>查看消息、好友与已读状态</li><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>浏览文件，单文件下载上限 1 GB</li><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>上传与后台传输请使用桌面客户端</li></ul><a class="button light" href="/app/">进入网页版<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a><p class="start-note">网页版不参与多源传输，关闭页面后不继续后台任务。</p></article></div><p class="account-note"><svg class="icon" aria-hidden="true"><use href="#shield"/></svg>使用管理员提供的账号和密码登录；没有账号，请联系团队管理员。</p></div></section>
+    <section class="faq-section" aria-labelledby="faq-title"><div class="wrap faq-grid"><div class="faq-heading"><p class="eyebrow">A LITTLE MORE TO KNOW</p><h2 id="faq-title">开始前，你可能想知道。</h2><p>把常见问题说清楚，让第一步更轻松。</p></div><div class="faq-list"><details><summary>需要自己填写服务器地址吗？</summary><p>不需要。桌面客户端在构建时绑定团队服务器，员工只需输入账号和密码。网页版使用当前站点提供的服务。</p></details><details><summary>关闭客户端窗口，文件还会继续传吗？</summary><p>会。关闭窗口后，桌面客户端留在系统托盘，传输可以继续。从托盘选择退出、退出登录，或关闭电脑后，任务就不能继续运行。重新打开后，可恢复尚未完成的传输。</p></details><details><summary>在家也能使用吗？</summary><p>需要管理员先为企业服务器配置可从外部访问的地址、HTTPS 和相应网络服务。是否可以访问取决于团队部署；仅提供局域网地址时，在家无法直接连接。</p></details><details><summary>为什么有些文件建议用客户端下载？</summary><p>桌面客户端提供多源并行传输、断点恢复和后台任务，适合大文件及日常使用。网页版是轻量入口，仅支持单个不超过 1 GB 的文件下载，不提供文件上传。</p></details></div></div></section>
+    <section class="closing dark" aria-labelledby="closing-title"><div class="wrap"><div><h2 id="closing-title">让下一次协作，<br>从这里开始。</h2><p>连接同事、想法与文件。留出时间，把事情做好。</p></div><a class="button primary" href="/downloads">获取 LinkNestX<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a></div></section>
+  </main>
+  <footer class="footer dark"><div class="wrap"><a class="brand" href="#main" aria-label="LinkNestX 返回顶部"><svg aria-hidden="true"><use href="#mark"/></svg><span>LinkNest<span class="brand-x">X</span></span></a><p>团队沟通与文件协作 · 自主部署，自然连接。</p><nav aria-label="页脚导航"><a href="/downloads">客户端下载</a><a href="/app/">网页版</a></nav></div></footer>
+</body>
+</html>

@@ -28,6 +28,8 @@ const (
 // lifecycle cleanup. Values can be supplied through LINKNESTX_* environment
 // variables; unset values use the safe development defaults below.
 type Config struct {
+	WebAssetsDir           string
+	ReleaseDir             string
 	TrustedProxyCIDRs      []string
 	ICEServers             []ICEServer
 	TURNSharedSecret       string
@@ -102,6 +104,8 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	setString(&cfg.BindAddress, "LINKNESTX_BIND_ADDRESS")
+	setString(&cfg.WebAssetsDir, "LINKNESTX_WEB_ASSETS_DIR")
+	setString(&cfg.ReleaseDir, "LINKNESTX_RELEASE_DIR")
 	setString(&cfg.StorageRoot, "LINKNESTX_STORAGE_ROOT")
 	setString(&cfg.SQLitePath, "LINKNESTX_SQLITE_PATH")
 	setString(&cfg.JWTSigningKey, "LINKNESTX_JWT_SIGNING_KEY")

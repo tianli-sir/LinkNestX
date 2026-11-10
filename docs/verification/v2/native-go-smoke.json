@@ -1,0 +1,23 @@
+{
+  "source": "scripts/smoke-test.sh against a freshly built Go server and the production Rust HTTP/WebRTC transfer stack; loopback temporary accounts/storage only",
+  "status": "passed",
+  "testsPassed": 4,
+  "testsFailed": 0,
+  "testsIgnored": 0,
+  "testDurationSeconds": 79.78,
+  "fileBytes": 50331648,
+  "chunks": 12,
+  "sha256": "abe9bc53084555399e17ed60cf1ce82dbefe37e8cd078d16964a74d0ef5899e5",
+  "peerReceivedBytes": [20971520, 8388608],
+  "serverObservedBytes": 20971520,
+  "partialBytesAtAnnouncement": 4194304,
+  "resumedVerifiedBytes": 4194304,
+  "savedDownloadsVerified": true,
+  "savedFilesSurvivedCachePrune": true,
+  "deviceRevokeDeniedNewGrant": true,
+  "auditExport": {"records": 205, "csvBytes": 44165, "jsonBytes": 71959},
+  "maximumFileGeometryBytes": 20000000000,
+  "maximumFileGeometryChunks": 4769,
+  "full20GBTransfer": false,
+  "notes": "The uploader's service is stopped to leave the swarm; the fixture no longer disables local sharing. These tests do not exercise OS clipboard, dialogs or a Windows runtime."
+}

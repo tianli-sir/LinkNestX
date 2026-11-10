@@ -395,3 +395,67 @@ func TestConnectionAuditRejectsHistoricalReuseAndTerminalMutation(t *testing.T) 
 		t.Fatalf("unbound terminal update %v %v", end, e)
 	}
 }
+
+func TestFinalSharingAndUnlistedInvalidateExistingSourcesAndGrants(t *testing.T) {
+	f := setup(t)
+	f.announce(t, 0)
+	f.announce(t, 1)
+	grant, e := f.service.CreateChunkGrant(f.contexts[1], f.sessions[1].User.ID, f.version.VersionID, f.hash)
+	if e != nil {
+		t.Fatal(e)
+	}
+	// Policies are mutated through the authenticated admin service; admin was not added to the group.
+	admin, e := f.auth.Login(context.Background(), auth.LoginInput{Username: "admin", Password: "password123"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	ctx, e := f.auth.AuthenticateContext(context.Background(), admin.AccessToken)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = f.files.SetSharingPolicy(ctx, admin.User.ID, "group", f.group.ID, files.SharingPolicy{Enabled: false}); e != nil {
+		t.Fatal(e)
+	}
+	if e = f.service.ValidateChunkGrant(f.contexts[0], grant); !errors.Is(e, files.ErrSharingDisabled) {
+		t.Fatalf("stale grant %v", e)
+	}
+	if e = f.service.Announce(f.contexts[0], f.sessions[0].User.ID, AnnounceInput{VersionID: f.version.VersionID, Indexes: []int{0}}); !errors.Is(e, files.ErrSharingDisabled) {
+		t.Fatal(e)
+	}
+	if yes, e := f.service.IsSource(f.contexts[0], f.sessions[0].DeviceID, f.sessions[0].ID, f.version.VersionID); e != nil || yes {
+		t.Fatalf("source still eligible %v %v", yes, e)
+	}
+	reader, _, e := f.files.OpenChunk(f.contexts[1], f.sessions[1].User.ID, f.version.VersionID, f.hash)
+	if e != nil {
+		t.Fatalf("HTTP fallback %v", e)
+	}
+	reader.Close()
+	if _, e = f.files.PromoteToPool(ctx, admin.User.ID, f.version.FileID); e != nil {
+		t.Fatal(e)
+	}
+	if e = f.service.ValidateChunkGrant(f.contexts[0], grant); e != nil {
+		t.Fatalf("pool independent %v", e)
+	}
+	listed := false
+	if e = f.files.EditPool(ctx, admin.User.ID, f.version.FileID, files.PoolEdit{Listed: &listed}); e != nil {
+		t.Fatal(e)
+	}
+	if e = f.service.ValidateChunkGrant(f.contexts[0], grant); !errors.Is(e, files.ErrForbidden) {
+		t.Fatalf("unlisted stale grant %v", e)
+	}
+	if yes, e := f.service.IsSource(ctx, f.sessions[0].DeviceID, f.sessions[0].ID, f.version.VersionID); e != nil || yes {
+		t.Fatalf("unlisted source %v %v", yes, e)
+	}
+	if _, _, e = f.files.OpenChunk(f.contexts[0], f.sessions[0].User.ID, f.version.VersionID, f.hash); !errors.Is(e, files.ErrForbidden) {
+		t.Fatal(e)
+	}
+	listed = true
+	if e = f.files.EditPool(ctx, admin.User.ID, f.version.FileID, files.PoolEdit{Listed: &listed}); e != nil {
+		t.Fatal(e)
+	}
+	reader, _, e = f.files.OpenChunk(f.contexts[1], f.sessions[1].User.ID, f.version.VersionID, f.hash)
+	if e != nil {
+		t.Fatal(e)
+	}
+	reader.Close()
+}

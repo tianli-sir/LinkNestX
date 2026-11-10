@@ -1,11 +1,11 @@
 [package]
 name = "linknestx"
-version = "0.1.0"
+version = "0.2.0"
 description = "LinkNestX desktop collaboration client"
 authors = ["LinkNestX contributors"]
 edition = "2021"
 license = "MIT"
-rust-version = "1.77"
+rust-version = "1.90"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
@@ -16,8 +16,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots", "stream"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots", "rustls-tls-native-roots"] }
 futures-util = "0.3"
 rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
@@ -27,10 +27,29 @@ async-trait = "0.1"
 tempfile = "3"
 rfd = "0.15"
 tauri-plugin-autostart = "2"
+webrtc = "0.14"
+bytes = "1"
+libc = "0.2"
+base64 = "0.22"
+png = "0.18.1"
+ring = "0.17.14"
+semver = "1"
 
 [dev-dependencies]
-axum = "0.8"
+tokio = { version = "1", features = ["test-util"] }
+axum = { version = "0.8", features = ["ws"] }
+tauri = { version = "2.0", features = ["test"] }
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep"] }
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSError"] }
+objc2-user-notifications = { version = "0.3.2", features = ["block2", "UNNotificationContent", "UNNotificationRequest", "UNUserNotificationCenter"] }
+block2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_UI_Shell"] }

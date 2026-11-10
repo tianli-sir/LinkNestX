@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
+	"github.com/linknestx/linknestx/server/internal/groups"
 )
 
 type queryer interface {
@@ -20,12 +21,13 @@ type queryer interface {
 type fileState struct {
 	id, groupID, createdBy, visibility, current string
 	deleted                                     bool
+	listed                                      bool
 }
 
 func loadFile(ctx context.Context, q queryer, id string) (fileState, error) {
 	var f fileState
 	var deleted, current sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT id,group_id,created_by,visibility,current_version_id,deleted_at FROM files WHERE id=?`, id).Scan(&f.id, &f.groupID, &f.createdBy, &f.visibility, &current, &deleted)
+	err := q.QueryRowContext(ctx, `SELECT id,group_id,created_by,visibility,current_version_id,deleted_at,listed FROM files WHERE id=?`, id).Scan(&f.id, &f.groupID, &f.createdBy, &f.visibility, &current, &deleted, &f.listed)
 	f.deleted = deleted.Valid
 	f.current = current.String
 	if errors.Is(err, sql.ErrNoRows) {
@@ -64,7 +66,10 @@ func admin(ctx context.Context, q queryer, actorID string) (bool, error) {
 	return n > 0, err
 }
 func access(ctx context.Context, q queryer, actorID string, f fileState) error {
-	if f.visibility == "pool" {
+	if direct, err := groups.RequireDirectMember(ctx, q, actorID, f.groupID); direct || err != nil {
+		return err
+	}
+	if f.visibility == "pool" && f.listed {
 		return nil
 	}
 	a, err := admin(ctx, q, actorID)
@@ -74,9 +79,21 @@ func access(ctx context.Context, q queryer, actorID string, f fileState) error {
 	if a {
 		return nil
 	}
+	if f.visibility == "pool" {
+		return ErrForbidden
+	}
 	return member(ctx, q, actorID, f.groupID)
 }
 func manage(ctx context.Context, q queryer, actorID string, f fileState) error {
+	if direct, err := groups.RequireDirectMember(ctx, q, actorID, f.groupID); direct || err != nil {
+		if err != nil {
+			return err
+		}
+		if f.createdBy != actorID {
+			return ErrForbidden
+		}
+		return nil
+	}
 	a, err := admin(ctx, q, actorID)
 	if err != nil {
 		return err
@@ -123,6 +140,10 @@ func (s *FileService) authorizedVersion(ctx context.Context, q queryer, actorID,
 	}
 	if f.deleted || m.Status != "published" || (expires.Valid && expires.String <= stamp(s.now())) {
 		return m, ErrUnavailable
+	}
+	m.SharingPolicy, err = loadSharingPolicy(ctx, q, f)
+	if err != nil {
+		return m, err
 	}
 	m.Visibility = f.visibility
 	m.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
@@ -224,7 +245,11 @@ func (s *FileService) ValidateChunkGrant(ctx context.Context, g ChunkGrant) erro
 	if _, err = s.authorizedVersion(ctx, tx, g.UserID, g.VersionID); err != nil {
 		return err
 	}
-	if _, err = s.authorizedVersion(ctx, tx, caller.ID, g.VersionID); err != nil {
+	m, err := s.authorizedVersion(ctx, tx, caller.ID, g.VersionID)
+	if err == nil && !m.SharingPolicy.Enabled {
+		return ErrSharingDisabled
+	}
+	if err != nil {
 		return err
 	}
 	var size int64
@@ -236,6 +261,9 @@ func (s *FileService) ValidateChunkGrant(ctx context.Context, g ChunkGrant) erro
 
 // Administrators manage/read group files independently of group chat membership.
 func fileGroupAccess(ctx context.Context, q queryer, actorID, groupID string) error {
+	if direct, err := groups.RequireDirectMember(ctx, q, actorID, groupID); direct || err != nil {
+		return err
+	}
 	a, err := admin(ctx, q, actorID)
 	if err != nil {
 		return err

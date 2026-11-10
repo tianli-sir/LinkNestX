@@ -11,6 +11,9 @@ import (
 )
 
 type User struct {
+	AccountNumber      string    `json:"accountNumber"`
+	DisplayName        string    `json:"displayName"`
+	AvatarURL          string    `json:"avatarUrl,omitempty"`
 	ID                 string    `json:"id"`
 	Username           string    `json:"username"`
 	Email              string    `json:"email,omitempty"`
@@ -36,6 +39,9 @@ func scanUser(ctx context.Context, r *Repository, row *sql.Row) (User, error) {
 	}
 	u.Disabled = disabled != 0
 	u.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	if err := r.profile(ctx, &u); err != nil {
+		return u, err
+	}
 	rows, err := r.db.QueryContext(ctx, `SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name`, u.ID)
 	if err != nil {
 		return u, err
@@ -57,12 +63,15 @@ func (r *Repository) userByLogin(ctx context.Context, login string) (User, strin
 	var u User
 	var disabled int
 	var created, hash string
-	err := r.db.QueryRowContext(ctx, `SELECT id,username,email,password_hash,disabled,must_change_password,created_at FROM users WHERE lower(username)=lower(?) OR (email<>'' AND lower(email)=lower(?)) LIMIT 1`, login, login).Scan(&u.ID, &u.Username, &u.Email, &hash, &disabled, &u.MustChangePassword, &created)
+	err := r.db.QueryRowContext(ctx, `SELECT id,username,email,password_hash,disabled,must_change_password,created_at FROM users WHERE lower(username)=lower(?) OR (email<>'' AND lower(email)=lower(?)) OR id=(SELECT user_id FROM profiles WHERE account_number=?) LIMIT 1`, login, login, login).Scan(&u.ID, &u.Username, &u.Email, &hash, &disabled, &u.MustChangePassword, &created)
 	if err != nil {
 		return u, "", err
 	}
 	u.Disabled = disabled != 0
 	u.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	if err := r.profile(ctx, &u); err != nil {
+		return u, "", err
+	}
 	rows, err := r.db.QueryContext(ctx, `SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name`, u.ID)
 	if err != nil {
 		return u, "", err
@@ -172,7 +181,7 @@ type sessionWriter interface {
 }
 
 func insertSession(ctx context.Context, writer sessionWriter, session Session, now time.Time, rotated string) error {
-	_, err := writer.ExecContext(ctx, `INSERT INTO sessions(id,user_id,device_id,refresh_token_hash,created_at,expires_at,rotated_from) VALUES(?,?,?,?,?,?,?)`, session.ID, session.User.ID, session.DeviceID, hashToken(session.RefreshToken), now.UTC().Format(time.RFC3339Nano), session.ExpiresAt.UTC().Format(time.RFC3339Nano), nullString(rotated))
+	_, err := writer.ExecContext(ctx, `INSERT INTO sessions(id,user_id,device_id,refresh_token_hash,created_at,expires_at,rotated_from,client_type,csrf_token) VALUES(?,?,?,?,?,?,?,?,?)`, session.ID, session.User.ID, session.DeviceID, hashToken(session.RefreshToken), now.UTC().Format(time.RFC3339Nano), session.ExpiresAt.UTC().Format(time.RFC3339Nano), nullString(rotated), session.ClientType, session.CSRFToken)
 	return err
 }
 func (r *Repository) createSession(ctx context.Context, session Session, now time.Time, expectedHash string) error {
@@ -269,4 +278,13 @@ func (r *Repository) revokeSession(ctx context.Context, id string, now time.Time
 		}
 	}
 	return tx.Commit()
+}
+
+func (r *Repository) profile(ctx context.Context, u *User) error {
+	var avatar bool
+	err := r.db.QueryRowContext(ctx, `SELECT account_number,display_name,avatar IS NOT NULL FROM profiles WHERE user_id=?`, u.ID).Scan(&u.AccountNumber, &u.DisplayName, &avatar)
+	if avatar {
+		u.AvatarURL = "/api/v1/profiles/" + u.ID + "/avatar"
+	}
+	return err
 }

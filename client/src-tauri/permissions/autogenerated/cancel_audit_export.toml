@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-audit-export"
+description = "Enables the cancel_audit_export command without any pre-configured scope."
+commands.allow = ["cancel_audit_export"]
+
+[[permission]]
+identifier = "deny-cancel-audit-export"
+description = "Denies the cancel_audit_export command without any pre-configured scope."
+commands.deny = ["cancel_audit_export"]

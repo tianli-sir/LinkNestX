@@ -6,7 +6,8 @@ import { WorkspaceRouter } from "./features/WorkspaceRouter";
 import { DesktopProvider, type DesktopAdapter } from "./runtime/DesktopProvider";
 import "./styles.css";
 import "./styles/features.css";
-const DEFAULT_VERSION = "0.1.0";
+import "./styles/messaging.css";
+const DEFAULT_VERSION = "0.2.0";
 declare global {
   interface Window {
     __APP_VERSION__: string;
@@ -21,7 +22,7 @@ export interface AppProps {
   storage?: PreferenceStorage;
 }
 export function App({ transport, desktop, storage }: AppProps = {}) {
-  return <DesktopProvider adapter={desktop}><AuthProvider transport={transport} storage={storage}><WorkspaceRouter /></AuthProvider></DesktopProvider>;
+  return <AuthProvider transport={transport} storage={storage}><WorkspaceRouter desktopAdapter={desktop}/></AuthProvider>;
 }
 const root = document.getElementById("root");
 if (root)
