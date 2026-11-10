@@ -1,0 +1,3 @@
+// CREATEPROCESS_MANIFEST_RESOURCE_ID / RT_MANIFEST.
+// The manifest is shared by application binaries and every native test target.
+1 24 "windows-app.manifest"

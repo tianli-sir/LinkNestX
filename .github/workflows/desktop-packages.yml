@@ -3,6 +3,12 @@ name: Unsigned desktop packages
 # Manually requested build artifacts only. This workflow never creates a release.
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Desktop packages to build
+        type: choice
+        default: all
+        options: [all, windows, macos]
 
 permissions:
   contents: read
@@ -13,15 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            artifact: linknestx-macos-arm64-unsigned
-            bundles: app,dmg
-            target: aarch64-apple-darwin
-          - os: windows-2025
-            artifact: linknestx-windows-x64-unsigned
-            bundles: nsis,msi
-            target: x86_64-pc-windows-msvc
+        os: ${{ fromJSON(inputs.platform == 'windows' && '["windows-2025"]' || inputs.platform == 'macos' && '["macos-15"]' || '["macos-15","windows-2025"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     defaults:
@@ -37,7 +35,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.1'
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.os == 'windows-2025' && 'x86_64-pc-windows-msvc' || 'aarch64-apple-darwin' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: client/src-tauri -> target
@@ -65,13 +63,13 @@ jobs:
           retention-days: 7
       - name: Build unsigned installers
         env:
-          PACKAGE_BUNDLES: ${{ matrix.bundles }}
-          PACKAGE_TARGET: ${{ matrix.target }}
+          PACKAGE_BUNDLES: ${{ matrix.os == 'windows-2025' && 'nsis,msi' || 'app,dmg' }}
+          PACKAGE_TARGET: ${{ matrix.os == 'windows-2025' && 'x86_64-pc-windows-msvc' || 'aarch64-apple-darwin' }}
         run: bash scripts/package-client.sh --unsigned --bundles "$PACKAGE_BUNDLES" --target "$PACKAGE_TARGET"
       - name: Retain unsigned installers
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.os == 'windows-2025' && 'linknestx-windows-x64-unsigned' || 'linknestx-macos-arm64-unsigned' }}
           if-no-files-found: error
           retention-days: 14
           path: |

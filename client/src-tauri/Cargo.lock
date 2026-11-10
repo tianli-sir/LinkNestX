@@ -2624,6 +2624,7 @@ dependencies = [
  "block2",
  "bytes",
  "chrono",
+ "embed-resource",
  "futures-util",
  "libc",
  "objc2",

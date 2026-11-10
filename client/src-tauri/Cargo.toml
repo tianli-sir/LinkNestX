@@ -9,6 +9,7 @@ rust-version = "1.90"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
+embed-resource = "3.0.12"
 
 [dependencies]
 tauri = { version = "2.0", features = ["tray-icon"] }
