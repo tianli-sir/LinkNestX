@@ -39,6 +39,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: client/src-tauri -> target
+          cache-on-failure: "true"
       - name: Install locked frontend dependencies
         working-directory: client
         run: npm ci

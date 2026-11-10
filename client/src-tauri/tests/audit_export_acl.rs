@@ -81,7 +81,14 @@ fn audit_export_commands_cross_the_real_local_capability_boundary_and_deny_remot
         .build()
         .unwrap();
     let result = || {
-        let local = "tauri://localhost";
+        // These mock windows use the builder's default use_https_scheme(false).
+        // Match Tauri's platform-specific embedded origin; the Windows WebView2
+        // protocol mapping is an HTTP localhost origin, not tauri://localhost.
+        let local = if cfg!(any(windows, target_os = "android")) {
+            "http://tauri.localhost"
+        } else {
+            "tauri://localhost"
+        };
         assert_eq!(
             call(&window, local, "get_background_status", json!({})).unwrap()["activeUploads"],
             0

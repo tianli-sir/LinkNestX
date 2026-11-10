@@ -16,6 +16,7 @@ use linknestx::{
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    io::Read,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -203,8 +204,16 @@ impl Harness {
             loop {
                 let has_bytes = std::fs::read_dir(self.output.path()).unwrap().any(|entry| {
                     let entry = entry.unwrap();
-                    entry.file_name().to_string_lossy().ends_with(".part")
-                        && entry.metadata().unwrap().len() > 0
+                    entry.file_name().to_string_lossy().ends_with(".part") && {
+                        // Windows directory entries can retain the old length while the
+                        // writer is open. Observe actual bytes through a separate handle.
+                        let mut first_byte = [0u8; 1];
+                        std::fs::File::open(entry.path())
+                            .unwrap()
+                            .read(&mut first_byte)
+                            .unwrap()
+                            == 1
+                    }
                 });
                 if has_bytes {
                     return;

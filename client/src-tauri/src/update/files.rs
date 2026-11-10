@@ -8,8 +8,17 @@ use std::{
 };
 pub fn no_links(path: &Path) -> Result<()> {
     #[cfg(windows)]
-    if !path.is_absolute() {
-        return Err(bad("更新路径必须包含完整绝对根"));
+    {
+        let mut components = path.components();
+        let disk_prefix = matches!(components.next(), Some(std::path::Component::Prefix(prefix))
+            if matches!(prefix.kind(), std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)));
+        // Rust treats a bare verbatim disk prefix (\\?\C:) as absolute even
+        // without a root separator. Require RootDir before deferring its check.
+        if !path.is_absolute()
+            || (disk_prefix && components.next() != Some(std::path::Component::RootDir))
+        {
+            return Err(bad("更新路径必须包含完整绝对根"));
+        }
     }
     let mut part = PathBuf::new();
     for c in path.components() {
