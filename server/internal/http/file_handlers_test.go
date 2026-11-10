@@ -34,6 +34,10 @@ func TestFileRoutesUploadPublishPromoteDownload(t *testing.T) {
 	if _, e = a.BootstrapAdmin(context.Background(), auth.CreateUserInput{Username: "admin", Password: "password123"}); e != nil {
 		t.Fatal(e)
 	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	admin, e := a.Login(context.Background(), auth.LoginInput{Username: "admin", Password: "password123"})
 	if e != nil {
 		t.Fatal(e)
@@ -45,12 +49,20 @@ func TestFileRoutesUploadPublishPromoteDownload(t *testing.T) {
 	if _, e = a.CreateUser(ctx, auth.CreateUserInput{Username: "other", Password: "password123"}); e != nil {
 		t.Fatal(e)
 	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	other, e := a.Login(context.Background(), auth.LoginInput{Username: "other", Password: "password123"})
 	if e != nil {
 		t.Fatal(e)
 	}
 	if _, e = a.CreateUser(ctx, auth.CreateUserInput{Username: "owner", Password: "password123"}); e != nil {
 		t.Fatal(e)
+	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
 	}
 	owner, e := a.Login(context.Background(), auth.LoginInput{Username: "owner", Password: "password123"})
 	if e != nil {
@@ -182,6 +194,10 @@ func TestChunkHEADDoesNotRecordDelivery(t *testing.T) {
 	a := auth.NewAuthService(conn, "sign", "refresh")
 	if _, e = a.BootstrapAdmin(context.Background(), auth.CreateUserInput{Username: "admin", Password: "password123"}); e != nil {
 		t.Fatal(e)
+	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
 	}
 	session, e := a.Login(context.Background(), auth.LoginInput{Username: "admin", Password: "password123"})
 	if e != nil {

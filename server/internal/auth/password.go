@@ -19,7 +19,7 @@ const (
 )
 
 func HashPassword(password string) (string, error) {
-	if password == "" {
+	if password == "" || len(password) > MaxPasswordBytes {
 		return "", fmt.Errorf("password is required")
 	}
 	salt := make([]byte, argonSaltLen)
@@ -32,6 +32,9 @@ func HashPassword(password string) (string, error) {
 }
 
 func VerifyPassword(password, encoded string) bool {
+	if len(password) > MaxPasswordBytes || len(encoded) > 1024 {
+		return false
+	}
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
 		return false

@@ -101,7 +101,7 @@ func (r *Repository) createUser(ctx context.Context, in CreateUserInput, hash, i
 		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users u
    JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
    JOIN sessions s ON s.user_id=u.id
-   WHERE u.id=? AND u.disabled=0 AND r.name='admin' AND s.id=?
+   WHERE u.id=? AND u.disabled=0 AND u.must_change_password=0 AND r.name='admin' AND s.id=?
     AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday(?)`, actorID, actorSessionID, now).Scan(&authorized)
 		if err != nil {
 			return User{}, err
@@ -110,7 +110,7 @@ func (r *Repository) createUser(ctx context.Context, in CreateUserInput, hash, i
 			return User{}, ErrAdminRequired
 		}
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,username,email,password_hash,disabled,must_change_password,created_at,updated_at) VALUES(?,?,?,?,0,?,?,?)`, id, in.Username, in.Email, hash, !bootstrap, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,username,email,password_hash,disabled,must_change_password,created_at,updated_at) VALUES(?,?,?,?,0,1,?,?)`, id, in.Username, in.Email, hash, now, now)
 	if err != nil {
 		return User{}, err
 	}
@@ -127,6 +127,9 @@ func (r *Repository) createUser(ctx context.Context, in CreateUserInput, hash, i
 		if _, err = tx.ExecContext(ctx, `INSERT INTO user_roles(user_id,role_id) VALUES(?,?)`, id, roleID); err != nil {
 			return User{}, err
 		}
+	}
+	if err = RecordAudit(ctx, tx, actorID, "account.created", id, at); err != nil {
+		return User{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return User{}, err
@@ -172,8 +175,33 @@ func insertSession(ctx context.Context, writer sessionWriter, session Session, n
 	_, err := writer.ExecContext(ctx, `INSERT INTO sessions(id,user_id,device_id,refresh_token_hash,created_at,expires_at,rotated_from) VALUES(?,?,?,?,?,?,?)`, session.ID, session.User.ID, session.DeviceID, hashToken(session.RefreshToken), now.UTC().Format(time.RFC3339Nano), session.ExpiresAt.UTC().Format(time.RFC3339Nano), nullString(rotated))
 	return err
 }
-func (r *Repository) createSession(ctx context.Context, session Session, now time.Time, rotated string) error {
-	return insertSession(ctx, r.db, session, now, rotated)
+func (r *Repository) createSession(ctx context.Context, session Session, now time.Time, expectedHash string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET id=id WHERE id=?`, session.User.ID); err != nil {
+		return err
+	}
+	var hash string
+	var disabled bool
+	if err := tx.QueryRowContext(ctx, `SELECT password_hash,disabled FROM users WHERE id=?`, session.User.ID).Scan(&hash, &disabled); err != nil {
+		return err
+	}
+	if disabled {
+		return ErrDisabledAccount
+	}
+	if hash != expectedHash {
+		return ErrInvalidCredentials
+	}
+	if err := insertSession(ctx, tx, session, now, ""); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events(id,actor_id,action,target_id,device_id,created_at) VALUES(?,?,'account.login',?,?,?)`, newID(), session.User.ID, session.ID, session.DeviceID, now.UTC().Format("2006-01-02T15:04:05.000000000Z")); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // The conditional update acquires the write lock before reading session state.
@@ -199,6 +227,9 @@ func (r *Repository) rotateSession(ctx context.Context, oldID, oldHash string, r
 	if err := insertSession(ctx, tx, replacement, now, oldID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE devices SET last_seen_at=? WHERE id=? AND user_id=?`, now.UTC().Format(time.RFC3339Nano), replacement.DeviceID, replacement.User.ID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 func nullString(s string) any {
@@ -219,6 +250,23 @@ func (r *Repository) findSession(ctx context.Context, hash string) (id, userID, 
 	return
 }
 func (r *Repository) revokeSession(ctx context.Context, id string, now time.Time) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE sessions SET revoked_at=COALESCE(revoked_at,?) WHERE id=?`, now.UTC().Format(time.RFC3339Nano), id)
-	return err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE sessions SET revoked_at=? WHERE id=? AND revoked_at IS NULL`, now.UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events(id,actor_id,action,target_id,device_id,created_at) SELECT ?,user_id,'account.session_revoked',id,device_id,? FROM sessions WHERE id=?`, newID(), now.UTC().Format("2006-01-02T15:04:05.000000000Z"), id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

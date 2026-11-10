@@ -2,7 +2,19 @@ openapi: 3.1.0
 info:
   title: LinkNestX API
   version: 0.1.0
-  description: Authenticated API for LAN and internet collaboration.
+  description: >-
+    Authenticated API for LAN and internet collaboration. Local password accounts
+    are the phase-one identity method; optional MFA is a later enhancement.
+    Initial-password accounts, including bootstrap administrators, may only use
+    login, refresh, logout, me and password change until initialization completes.
+    Login/refresh JSON bodies are limited to 8192 bytes and share a bounded
+    remote-address rate limit (20-request burst, one token every three seconds).
+    Forwarded client-address headers are ignored by default. Deployments behind
+    a reverse proxy can explicitly configure LINKNESTX_TRUSTED_PROXY_CIDRS
+    (comma-separated CIDRs, for example 127.0.0.1/32 and ::1/128 for a same-host
+    proxy). Only a trusted socket peer enables X-Forwarded-For processing; the
+    chain is walked right to left until the first untrusted address. Malformed,
+    repeated or oversized headers fall back to the socket peer.
 servers:
   - url: http://localhost:8080
     description: Local development server
@@ -57,6 +69,15 @@ paths:
           content:
             application/json: { schema: { $ref: '#/components/schemas/User' } }
   /api/v1/users:
+    get:
+      operationId: userDirectory
+      summary: List enabled employees for membership selection
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Only public directory fields
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DirectoryUser' } } }
     post:
       operationId: createUser
       summary: Create a local account (current administrators only)
@@ -375,7 +396,359 @@ paths:
       responses:
         '204': { description: File unavailable immediately; shared bytes retained until no live references }
         '403': { description: Uploader, group owner, or administrator required; pool files require administrator }
+  /api/v1/p2p/announce:
+    post:
+      operationId: announcePeerChunks
+      summary: Replace verified cached chunk indexes for this authenticated device
+      description: Discovery hints only. The immutable server manifest defines hash and size. Send only locally verified indexes; an empty list withdraws the version. Session refresh requires re-announcement and WebSocket reconnect.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [versionId, indexes]
+              properties:
+                versionId: { type: string, format: uuid }
+                indexes: { type: array, maxItems: 5000, uniqueItems: true, items: { type: integer, minimum: 0 } }
+      responses:
+        '204': { description: Announcement replaced; lease is 60 seconds }
+        '400': { description: Invalid version or indexes }
+        '401': { description: Current authentication required }
+        '403': { description: File access denied }
+        '404': { description: File unavailable }
+        '413': { description: Body exceeds 65536 bytes }
+        '429': { description: Device has reached 128 announced versions }
+  /api/v1/p2p/heartbeat:
+    post:
+      operationId: heartbeatPeerSources
+      summary: Refresh own existing source leases and bind them to current session
+      description: Send every 20 seconds; optional versionId restricts the update. Re-announce after reconnect because expiry cleanup may have removed older rows.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/OptionalPeerVersion' } }
+      responses:
+        '204': { description: Leases updated }
+        '400': { description: Invalid request }
+        '401': { description: Current authentication required }
+        '403': { description: File access denied }
+        '404': { description: File unavailable }
+        '413': { description: Body exceeds 65536 bytes }
+  /api/v1/p2p/withdraw:
+    post:
+      operationId: withdrawPeerSources
+      summary: Withdraw this device's sources for one or all versions
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/OptionalPeerVersion' } }
+      responses:
+        '204': { description: Withdrawn idempotently }
+        '400': { description: Invalid request }
+        '401': { description: Current authentication required }
+        '413': { description: Body exceeds 65536 bytes }
+  /api/v1/p2p/sources:
+    get:
+      operationId: listPeerSources
+      summary: Discover current eligible source devices
+      description: At most 64 candidates, excluding this device. Requires current requester access, live source session, source file permission, and heartbeat within 60 seconds. Same-account other devices are eligible. Returned claims do not prove possession.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: versionId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Sources and ICE servers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sources, iceServers]
+                properties:
+                  sources: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/PeerSource' } }
+                  iceServers: { type: array, items: { $ref: '#/components/schemas/ICEServer' } }
+        '401': { description: Current authentication required }
+        '403': { description: File access denied }
+        '404': { description: File unavailable }
+  /api/v1/p2p/config:
+    get:
+      operationId: peerICEConfiguration
+      summary: Get ICE configuration and temporary TURN credentials
+      description: LINKNESTX_ICE_SERVERS supplies a JSON array. Default is empty for LAN host candidates. LINKNESTX_TURN_SHARED_SECRET generates TURN REST HMAC-SHA1 credentials for TURN URLs; LINKNESTX_TURN_CREDENTIAL_TTL defaults to 10m and allows 1m–1h. Username is expiryUnix:deviceId. Static paired username/credential is also supported. The shared secret is never returned. HTTP chunk streaming remains available when ICE fails.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: ICE configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [iceServers]
+                properties:
+                  iceServers: { type: array, items: { $ref: '#/components/schemas/ICEServer' } }
+        '401': { description: Current authentication required }
+  /api/v1/p2p/grants:
+    post:
+      operationId: createPeerChunkGrant
+      summary: Issue a signed grant for the current recipient device/session
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [versionId, chunkHash]
+              properties:
+                versionId: { type: string, format: uuid }
+                chunkHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '200':
+          description: Grant expires within two minutes or at file expiry
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ChunkGrant' } }
+        '401': { description: Current authentication required }
+        '403': { description: File access denied }
+        '404': { description: Version or chunk unavailable }
+        '413': { description: Body exceeds 65536 bytes }
+  /api/v1/p2p/grants/validate:
+    post:
+      operationId: validatePeerChunkGrant
+      summary: Serving peer revalidates a recipient grant before every chunk
+      description: Checks HMAC, expiry, both live sessions and current file permissions, and immutable hash/size. Serving native must additionally match grant userId/deviceId to the trusted signaling fromUserId/fromDeviceId of its DataChannel and match version/hash to the request. This endpoint does not transfer bytes or certify the caller's possession.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [grant]
+              properties:
+                grant: { $ref: '#/components/schemas/ChunkGrant' }
+      responses:
+        '204': { description: Current recipient and serving peer authorized }
+        '400': { description: Invalid, tampered, or expired grant }
+        '401': { description: Revoked or expired session }
+        '403': { description: Either peer lost file permission }
+        '404': { description: File unavailable }
+        '413': { description: Body exceeds 65536 bytes }
+  /api/v1/p2p/ws:
+    get:
+      operationId: peerSignalingSocket
+      summary: Dedicated authenticated WebRTC signaling WebSocket
+      description: >-
+        Bearer header required; tokens in query strings are not accepted. Origin, if supplied, must match this host.
+        First event is session.ready with deviceId and userId. Client sends PeerClientEvent; server forwards it with trusted
+        fromDeviceId/fromUserId. Offered recipient must be a live announced source. A UUID connectionId binds two devices and
+        one immutable version; answer is allowed once from offered source, ICE and close only from either member. No
+        caller-supplied origin fields are accepted. Errors have type error, code, and optional connectionId; codes include
+        invalid_input, invalid_connection, offline, unavailable, forbidden, rate_limited, internal_error. Frames are limited
+        to 65536 bytes (oversize closes with 1009), burst 60 plus 2/second per session, max 16 active negotiations/device.
+        Signaling state expires after two minutes without signaling and peer.close is sent; established native transfers may
+        reconnect as needed. Disconnect/reconnect removes old pair state and sends peer.close to the counterpart. Permission
+        and live auth are checked before every forward and queued delivery. This socket never transfers file bytes. Refresh
+        requires reconnect and re-announcement; the new socket closes any older socket for this device.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '101': { description: WebSocket established }
+        '401': { description: Current authentication required }
+        '403': { description: Origin rejected }
+  /api/v1/auth/password:
+    post:
+      operationId: changePassword
+      security: [{ bearerAuth: [] }]
+      description: Verifies current password, requires a different new password, preserves this session, and revokes all other sessions. Passwords require at least eight Unicode characters and at most 1024 UTF-8 bytes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: Full updated user with mustChangePassword false
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/User' } }
+        '400': { description: Invalid or unchanged password }
+        '401': { description: Current password or session invalid }
+  /api/v1/admin/users:
+    get:
+      operationId: adminUsers
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: All accounts including disabled accounts; current administrator required
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/User' } } }
+  /api/v1/admin/users/{id}/disable:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    post:
+      operationId: setUserDisabled
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [disabled]
+              properties: { disabled: { type: boolean } }
+      responses:
+        '204': { description: Disabled or enabled; disabling revokes all sessions and enabling never restores them }
+        '409': { description: Last enabled administrator cannot be disabled }
+  /api/v1/admin/users/{id}/password:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    post:
+      operationId: resetUserPassword
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties: { password: { type: string, minLength: 8, description: At most 1024 UTF-8 bytes } }
+      responses:
+        '204': { description: Password reset, all sessions revoked, initial-password gate restored }
+  /api/v1/admin/users/{id}/revoke-sessions:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    post:
+      operationId: revokeUserSessions
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/EmptyObject' }
+      responses:
+        '204': { description: All account sessions revoked; self-revocation also succeeds and logs out the current client }
+  /api/v1/me/devices:
+    get:
+      operationId: ownDevices
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Own device timestamps and active session counts, without tokens
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Device' } } }
+  /api/v1/admin/devices:
+    get:
+      operationId: adminDevices
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: All devices with userId; current administrator required
+          content:
+            application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Device' } } }
+  /api/v1/me/devices/{id}/revoke:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    post:
+      operationId: revokeOwnDevice
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/EmptyObject' }
+      responses:
+        '204': { description: All existing sessions for this owned device revoked; explicit later login remains possible }
+        '404': { description: Device not found or belongs to another user }
+  /api/v1/admin/devices/{id}/revoke:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    post:
+      operationId: adminRevokeDevice
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/EmptyObject' }
+      responses:
+        '204': { description: Existing device sessions revoked by current administrator }
+  /api/v1/admin/audit:
+    get:
+      operationId: adminAudit
+      security: [{ bearerAuth: [] }]
+      description: Current administrators only. Events and aggregates ordered by UTC createdAt then id descending. Offset pagination is stable for an unchanged result set.
+      parameters:
+        - { $ref: '#/components/parameters/AuditAction' }
+        - { $ref: '#/components/parameters/AuditActor' }
+        - { $ref: '#/components/parameters/AuditDevice' }
+        - { $ref: '#/components/parameters/AuditFile' }
+        - { $ref: '#/components/parameters/AuditVersion' }
+        - { $ref: '#/components/parameters/AuditFrom' }
+        - { $ref: '#/components/parameters/AuditBefore' }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 1000, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, maximum: 10000000, default: 0 } }
+      responses:
+        '200':
+          description: Filtered events and total count
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/AuditPage' } }
+        '400': { description: Invalid filter or pagination }
+        '403': { description: Current initialized administrator required }
+  /api/v1/admin/audit/export:
+    get:
+      operationId: exportAudit
+      security: [{ bearerAuth: [] }]
+      description: >-
+        Complete filtered export, independent of UI pagination. Fixed UTC cutoff
+        and timestamp/id keyset, in batches of 200; database resources are released
+        before response writes. Aggregate rows updated after cutoff are excluded.
+        Permissions are rechecked between batches. On error after output begins,
+        the HTTP stream is aborted (HTTP/1 connection closure or HTTP/2 reset).
+        Consumers must treat transport errors as failure and publish saved files
+        only after a complete successful body. CSV protects spreadsheet formulas;
+        JSON contains events and the actual exported total. Cache-Control no-store.
+      parameters:
+        - { in: query, name: format, schema: { type: string, enum: [csv, json], default: csv } }
+        - { $ref: '#/components/parameters/AuditAction' }
+        - { $ref: '#/components/parameters/AuditActor' }
+        - { $ref: '#/components/parameters/AuditDevice' }
+        - { $ref: '#/components/parameters/AuditFile' }
+        - { $ref: '#/components/parameters/AuditVersion' }
+        - { $ref: '#/components/parameters/AuditFrom' }
+        - { $ref: '#/components/parameters/AuditBefore' }
+      responses:
+        '200':
+          description: Streamed attachment named linknestx-audit.csv or linknestx-audit.json
+          headers:
+            Content-Disposition: { schema: { type: string }, description: attachment with fixed filename }
+          content:
+            text/csv: { schema: { type: string } }
+            application/json: { schema: { $ref: '#/components/schemas/AuditPage' } }
+  /api/v1/p2p/transfers:
+    post:
+      operationId: reportClientTransfer
+      security: [{ bearerAuth: [] }]
+      description: Cumulative client-reported counters, authenticated by current user/device/session and current version ACL. Max bytes upsert per user/device/task/version/node/action makes retry idempotent. Peer attribution uses a durable device identity or a recorded negotiation for the reporting device pair and version, so delayed history remains reportable after the other participant logs out, loses membership, is disabled, or has its device revoked. Current reporter/session/version permissions remain required. This does not authorize new chunk access; server is allowed only for transfer.completed. Acknowledgement does not prove delivery and must not gate verified local delivery.
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ClientTransfer' } }
+      responses:
+        '204': { description: Client report accepted }
+        '400': { description: Invalid UUID, action, or counter exceeding version size }
+        '403': { description: Current version or peer access denied }
 components:
+  requestBodies:
+    EmptyObject:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: false }
+  parameters:
+    AccountOrDeviceID: { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    AuditAction: { in: query, name: action, schema: { type: string, maxLength: 128 } }
+    AuditActor: { in: query, name: actorId, schema: { type: string, format: uuid } }
+    AuditDevice: { in: query, name: deviceId, schema: { type: string, format: uuid } }
+    AuditFile: { in: query, name: fileId, schema: { type: string, format: uuid } }
+    AuditVersion: { in: query, name: versionId, schema: { type: string, format: uuid } }
+    AuditFrom: { in: query, name: from, schema: { type: string, format: date-time }, description: Inclusive UTC instant }
+    AuditBefore: { in: query, name: before, schema: { type: string, format: date-time }, description: Exclusive UTC instant }
   securitySchemes:
     bearerAuth:
       type: http
@@ -570,6 +943,58 @@ components:
         createdAt: { type: string, format: date-time }
         createdBy: { type: string, format: uuid }
         status: { type: string, enum: [published] }
+    OptionalPeerVersion:
+      type: object
+      additionalProperties: false
+      properties:
+        versionId: { type: string, format: uuid }
+    ICEServer:
+      type: object
+      required: [urls]
+      properties:
+        urls: { type: array, items: { type: string } }
+        username: { type: string }
+        credential: { type: string }
+    PeerSource:
+      type: object
+      required: [deviceId, userId, indexes, lastSeen]
+      properties:
+        deviceId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        indexes: { type: array, maxItems: 5000, items: { type: integer, minimum: 0 } }
+        lastSeen: { type: string, format: date-time }
+    PeerPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        sdp: { type: string, description: Raw SDP for offer/answer }
+        candidate: { type: string, maxLength: 8192, description: Empty means end of candidates }
+        sdpMid: { type: [string, 'null'], maxLength: 256 }
+        sdpMLineIndex: { type: [integer, 'null'], minimum: 0, maximum: 65535 }
+    PeerClientEvent:
+      type: object
+      additionalProperties: false
+      required: [type, toDeviceId, connectionId, versionId, payload]
+      properties:
+        type: { type: string, enum: [peer.offer, peer.answer, peer.ice, peer.close] }
+        toDeviceId: { type: string, format: uuid }
+        connectionId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        payload: { $ref: '#/components/schemas/PeerPayload' }
+    PeerServerEvent:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [session.ready, error, peer.offer, peer.answer, peer.ice, peer.close] }
+        deviceId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        fromDeviceId: { type: string, format: uuid }
+        fromUserId: { type: string, format: uuid }
+        toDeviceId: { type: string, format: uuid }
+        connectionId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        payload: { $ref: '#/components/schemas/PeerPayload' }
+        code: { type: string }
     ChunkGrant:
       type: object
       required: [userId, deviceId, sessionId, versionId, chunkHash, size, expiresAt, signature]
@@ -582,3 +1007,55 @@ components:
         size: { type: integer }
         expiresAt: { type: string, format: date-time }
         signature: { type: string, description: Server HMAC; serving peer must ask the server to revalidate current recipient and serving-peer authorization }
+    DirectoryUser:
+      type: object
+      additionalProperties: false
+      required: [id, username, email]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        email: { type: string }
+    Device:
+      type: object
+      required: [id, createdAt, lastSeen, active, sessionCount, current]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid, description: Present in administrator list }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time, description: Most recent login or refresh }
+        active: { type: boolean }
+        sessionCount: { type: integer, minimum: 0 }
+        current: { type: boolean }
+    AuditEvent:
+      type: object
+      required: [id, action, actorId, targetId, deviceId, fileId, versionId, taskId, nodeId, bytes, source, createdAt]
+      properties:
+        id: { type: string }
+        action: { type: string }
+        actorId: { type: string }
+        targetId: { type: string }
+        deviceId: { type: string }
+        fileId: { type: string }
+        versionId: { type: string }
+        taskId: { type: string }
+        nodeId: { type: string }
+        bytes: { type: integer, minimum: 0 }
+        source: { type: string, enum: [server-observed, client-reported] }
+        createdAt: { type: string, format: date-time }
+    AuditPage:
+      type: object
+      required: [events, total]
+      properties:
+        events: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        total: { type: integer, minimum: 0 }
+    ClientTransfer:
+      type: object
+      additionalProperties: false
+      required: [taskId, versionId, nodeId, action, bytes]
+      properties:
+        taskId: { type: string, format: uuid }
+        versionId: { type: string, format: uuid }
+        nodeId: { type: string, description: Peer device UUID or server }
+        action: { type: string, enum: [peer.sent, peer.received, transfer.completed] }
+        bytes: { type: integer, minimum: 0, maximum: 20000000000 }

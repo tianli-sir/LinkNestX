@@ -71,6 +71,10 @@ func (f *fixture) user(t *testing.T, name string, create bool) (auth.Session, co
 			t.Fatal(e)
 		}
 	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := f.a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	s, e := f.a.Login(context.Background(), auth.LoginInput{Username: name, Password: "password123"})
 	if e != nil {
 		t.Fatal(e)

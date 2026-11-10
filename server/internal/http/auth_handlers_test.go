@@ -28,6 +28,10 @@ func testAuthHandler(t *testing.T) *AuthHandlers {
 	if _, e = s.BootstrapAdmin(context.Background(), auth.CreateUserInput{Username: "admin", Password: "correct horse battery staple", Admin: true}); e != nil {
 		t.Fatal(e)
 	}
+	// Existing HTTP fixtures model an initialized administrator.
+	if _, err := d.Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	return NewAuthHandlers(s)
 }
 func TestAuthLoginAndMe(t *testing.T) {

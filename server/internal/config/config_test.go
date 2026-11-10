@@ -2,6 +2,17 @@ package config
 
 import "testing"
 
+func TestRejectInvalidICEConfiguration(t *testing.T) {
+	for _, value := range []string{`not-json`, `[{"urls":["https://example.com"]}]`, `[{"urls":["turn:private:3478"],"username":"only-user"}]`} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("LINKNESTX_ICE_SERVERS", value)
+			if _, err := Load(); err == nil {
+				t.Fatal("invalid ICE configuration accepted")
+			}
+		})
+	}
+}
+
 func TestBootstrapPasswordCharacterMinimum(t *testing.T) {
 	for _, test := range []struct {
 		name     string

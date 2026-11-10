@@ -148,6 +148,24 @@ func TestWebSocketRevokedSessionCannotReceiveOrSend(t *testing.T) {
 	}
 }
 
+func TestWebSocketInitialPasswordGateRechecksExistingConnection(t *testing.T) {
+	f := chatFixture(t)
+	_, server := socketServer(t, f)
+	c := socket(t, server, f.session)
+	readEvent(t, c, "presence.changed", "")
+	if _, err := f.db.Exec(`UPDATE users SET must_change_password=1 WHERE id=?`, f.session.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteJSON(ClientEvent{Type: "ping", RequestID: "password-required"}); err != nil {
+		t.Fatal(err)
+	}
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var event Event
+	if err := c.ReadJSON(&event); err == nil {
+		t.Fatalf("initial-password connection remained usable: %+v", event)
+	}
+}
+
 func TestWebSocketMembershipChangesAndOfflineCatchup(t *testing.T) {
 	f := chatFixture(t)
 	member, _ := f.user(t, "late-member")

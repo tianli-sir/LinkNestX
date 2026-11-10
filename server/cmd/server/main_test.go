@@ -44,11 +44,11 @@ func TestRunBootstrapsAdministratorFromEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bootstrap.sqlite3")
 	t.Setenv("LINKNESTX_SQLITE_PATH", path)
 	t.Setenv("LINKNESTX_STORAGE_ROOT", filepath.Join(t.TempDir(), "storage"))
-	t.Setenv("LINKNESTX_BIND_ADDRESS", "invalid-address")
+	t.Setenv("LINKNESTX_BIND_ADDRESS", "127.0.0.1:invalid-port")
 	t.Setenv("LINKNESTX_BOOTSTRAP_ADMIN_USERNAME", "operator")
 	t.Setenv("LINKNESTX_BOOTSTRAP_ADMIN_PASSWORD", "  local password  ")
 	// A deliberately invalid listener ends startup after setup without opening a port.
-	if err := run(); err == nil || !strings.Contains(err.Error(), "missing port") {
+	if err := run(); err == nil || !strings.Contains(err.Error(), "unknown port") {
 		t.Fatalf("listener error=%v", err)
 	}
 	conn, err := db.Open(path)
@@ -66,7 +66,7 @@ func TestRunBootstrapsAdministratorFromEnvironment(t *testing.T) {
 		t.Fatalf("bootstrap admin=%v, err=%v", admin, err)
 	}
 	t.Setenv("LINKNESTX_BOOTSTRAP_ADMIN_PASSWORD", "replacement-password")
-	if err := run(); err == nil || !strings.Contains(err.Error(), "missing port") {
+	if err := run(); err == nil || !strings.Contains(err.Error(), "unknown port") {
 		t.Fatalf("restart error=%v", err)
 	}
 	if _, err := service.Login(context.Background(), auth.LoginInput{Username: "operator", Password: "  local password  "}); err != nil {

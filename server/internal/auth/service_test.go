@@ -179,6 +179,10 @@ func adminSession(t *testing.T, s *AuthService) (Session, context.Context) {
 	if _, err := s.BootstrapAdmin(ctx, CreateUserInput{Username: "admin", Password: "password123"}); err != nil {
 		t.Fatal(err)
 	}
+	// This shared fixture models an initialized administrator.
+	if _, err := s.repo.db.Exec(`UPDATE users SET must_change_password=0 WHERE username='admin'`); err != nil {
+		t.Fatal(err)
+	}
 	session, err := s.Login(ctx, LoginInput{Username: "admin", Password: "password123"})
 	if err != nil {
 		t.Fatal(err)

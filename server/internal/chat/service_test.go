@@ -38,6 +38,10 @@ func chatFixture(t *testing.T) fixture {
 	if _, err := a.BootstrapAdmin(context.Background(), auth.CreateUserInput{Username: "admin", Password: "password123"}); err != nil {
 		t.Fatal(err)
 	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	sess, err := a.Login(context.Background(), auth.LoginInput{Username: "admin", Password: "password123"})
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +60,10 @@ func chatFixture(t *testing.T) fixture {
 func (f fixture) user(t *testing.T, name string) (auth.Session, context.Context) {
 	t.Helper()
 	if _, err := f.auth.CreateUser(f.ctx, auth.CreateUserInput{Username: name, Password: "password123"}); err != nil {
+		t.Fatal(err)
+	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := f.auth.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
 		t.Fatal(err)
 	}
 	sess, err := f.auth.Login(context.Background(), auth.LoginInput{Username: name, Password: "password123"})

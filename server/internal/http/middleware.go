@@ -33,6 +33,12 @@ func RequireAuth(service *auth.AuthService, next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		user, _ := auth.UserFromContext(ctx)
+		allowInitial := (r.Method == "GET" && r.URL.Path == "/api/v1/me") || (r.Method == "POST" && (r.URL.Path == "/api/v1/auth/password" || r.URL.Path == "/api/v1/auth/logout"))
+		if user.MustChangePassword && !allowInitial {
+			authError(w, auth.ErrPasswordChangeRequired)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

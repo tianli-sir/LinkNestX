@@ -8,6 +8,7 @@ import (
 
 	"strings"
 
+	"github.com/linknestx/linknestx/server/internal/audit"
 	"github.com/linknestx/linknestx/server/internal/auth"
 	"github.com/linknestx/linknestx/server/internal/chat"
 	"github.com/linknestx/linknestx/server/internal/config"
@@ -47,7 +48,10 @@ func NewRouterWithAuth(cfg config.Config, service *auth.AuthService) stdhttp.Han
 	mux := stdhttp.NewServeMux()
 	mux.Handle("/healthz", NewHandler(cfg))
 	if service != nil {
-		NewAuthHandlers(service).Register(mux)
+		handlers := NewAuthHandlers(service)
+		handlers.configureTrustedProxies(cfg.TrustedProxyCIDRs)
+		handlers.Register(mux)
+		(&AuditHandlers{Service: audit.NewService(service.Database(), service)}).Register(mux, service)
 	}
 	return mux
 }

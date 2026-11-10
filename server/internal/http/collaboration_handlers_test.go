@@ -28,6 +28,10 @@ func TestCollaborationRESTComposition(t *testing.T) {
 	if _, err := a.BootstrapAdmin(context.Background(), auth.CreateUserInput{Username: "admin", Password: "password123"}); err != nil {
 		t.Fatal(err)
 	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	session, err := a.Login(context.Background(), auth.LoginInput{Username: "admin", Password: "password123"})
 	if err != nil {
 		t.Fatal(err)

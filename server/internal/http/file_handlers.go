@@ -42,7 +42,7 @@ func (h *FileHandlers) CreateVersion(w http.ResponseWriter, r *http.Request) {
 func (h *FileHandlers) start(w http.ResponseWriter, r *http.Request, id string) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4*1024*1024)
 	var in files.StartUploadInput
-	if err := decodeJSON(r, &in); err != nil {
+	if err := decodeJSONLimit(r, &in, 4*1024*1024); err != nil {
 		writeError(w, 400, files.ErrInvalidInput)
 		return
 	}

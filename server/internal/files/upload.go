@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"github.com/linknestx/linknestx/server/internal/auth"
 	"io"
 	"os"
 	"time"
@@ -63,7 +64,7 @@ func (s *FileService) PutChunk(ctx context.Context, actorID, uploadID string, in
 	}
 	accepted, _ := receipt.RowsAffected()
 	if accepted > 0 {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO transfer_records(actor_id,version_id,task_id,node_id,action,bytes,created_at,updated_at) VALUES(?,?,?,'server','server.received',?,?,?) ON CONFLICT(actor_id,version_id,task_id,node_id,action) DO UPDATE SET bytes=bytes+excluded.bytes,updated_at=excluded.updated_at`, actorID, u.VersionID, uploadID, c.Size, stamp(at), stamp(at)); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO transfer_records(actor_id,version_id,task_id,node_id,action,bytes,created_at,updated_at,device_id) VALUES(?,?,?,'server','server.received',?,?,?,?) ON CONFLICT(actor_id,device_id,version_id,task_id,node_id,action) DO UPDATE SET bytes=bytes+excluded.bytes,updated_at=excluded.updated_at`, actorID, u.VersionID, uploadID, c.Size, stamp(at), stamp(at), auth.DeviceIDFromContext(ctx)); err != nil {
 			return err
 		}
 	}

@@ -15,7 +15,7 @@ func NewRepository(conn *sql.DB) *Repository { return &Repository{conn} }
 // Recheck session/account inside the same transaction as the membership write.
 func activeActor(ctx context.Context, tx *sql.Tx, actorID string) error {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND julianday(s.expires_at)>julianday('now')`, auth.SessionIDFromContext(ctx), actorID).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday('now')`, auth.SessionIDFromContext(ctx), actorID).Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -57,6 +57,9 @@ func (r *Repository) create(ctx context.Context, actorID, ownerID string, g Grou
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES(?,?,'owner',?)`, g.ID, ownerID, at); err != nil {
+		return err
+	}
+	if err := auth.RecordAudit(ctx, tx, actorID, "group.created", g.ID, g.CreatedAt); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -157,6 +160,13 @@ func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID,
 		_, err = tx.ExecContext(ctx, `INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES(?,?,?,?) ON CONFLICT(group_id,user_id) DO UPDATE SET role=excluded.role`, groupID, userID, role, time.Now().UTC().Format(time.RFC3339Nano))
 	}
 	if err != nil {
+		return err
+	}
+	action := "group.member_updated"
+	if remove {
+		action = "group.member_removed"
+	}
+	if err := auth.RecordAudit(ctx, tx, actorID, action, groupID+"/"+userID, time.Now()); err != nil {
 		return err
 	}
 	return tx.Commit()

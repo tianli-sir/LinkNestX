@@ -120,6 +120,9 @@ func (s *AuthService) CreateUser(ctx context.Context, in CreateUserInput) (User,
 	if !admin {
 		return User{}, ErrAdminRequired
 	}
+	if err := s.ValidateActor(ctx, uid); err != nil {
+		return User{}, err
+	}
 	in, err = validateCreateUser(in)
 	if err != nil {
 		return User{}, err
@@ -160,13 +163,24 @@ func validateCreateUser(in CreateUserInput) (CreateUserInput, error) {
 	if in.Username == "" || in.Password == "" {
 		return in, fmt.Errorf("%w: username and password are required", ErrInvalidInput)
 	}
-	if utf8.RuneCountInString(in.Password) < 8 {
-		return in, fmt.Errorf("%w: password must be at least 8 characters", ErrInvalidInput)
+	if len(in.Username) > 256 || len(in.Email) > 320 || !utf8.ValidString(in.Username) || !utf8.ValidString(in.Email) || len(in.Roles) > 16 {
+		return in, ErrInvalidInput
+	}
+	for _, role := range in.Roles {
+		if role == "" || len(role) > 64 {
+			return in, ErrInvalidInput
+		}
+	}
+	if err := validatePassword(in.Password); err != nil {
+		return in, err
 	}
 	return in, nil
 }
 
 func (s *AuthService) Login(ctx context.Context, in LoginInput) (Session, error) {
+	if len(in.Username) > 256 || len(in.Email) > 320 || len(in.Password) > MaxPasswordBytes || len(in.DeviceID) > 64 || !utf8.ValidString(in.Password) {
+		return Session{}, ErrInvalidInput
+	}
 	login := strings.TrimSpace(in.Username)
 	if login == "" {
 		login = strings.TrimSpace(in.Email)
@@ -188,7 +202,7 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (Session, error)
 	if err != nil {
 		return Session{}, err
 	}
-	return s.newSession(ctx, u, device, "")
+	return s.newSession(ctx, u, device, hash)
 }
 
 func (s *AuthService) prepareSession(u User, device string) (Session, error) {
@@ -204,18 +218,21 @@ func (s *AuthService) prepareSession(u User, device string) (Session, error) {
 	return Session{ID: id, AccessToken: access, RefreshToken: refresh, ExpiresAt: s.now().UTC().Add(s.refreshTTL), User: u, DeviceID: device}, nil
 }
 
-func (s *AuthService) newSession(ctx context.Context, u User, device, rotated string) (Session, error) {
+func (s *AuthService) newSession(ctx context.Context, u User, device, expectedHash string) (Session, error) {
 	session, err := s.prepareSession(u, device)
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.repo.createSession(ctx, session, s.now().UTC(), rotated); err != nil {
+	if err := s.repo.createSession(ctx, session, s.now().UTC(), expectedHash); err != nil {
 		return Session{}, err
 	}
 	return session, nil
 }
 
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (Session, error) {
+	if len(refreshToken) > 1024 {
+		return Session{}, ErrInvalidInput
+	}
 	if strings.TrimSpace(refreshToken) == "" {
 		return Session{}, ErrInvalidCredentials
 	}
@@ -294,6 +311,9 @@ func ParseAccessToken(token string, key []byte) (userID, sessionID, deviceID str
 }
 
 func parseAccessTokenAt(token string, key []byte, now time.Time) (userID, sessionID, deviceID string, exp time.Time, err error) {
+	if len(token) > 4096 {
+		return "", "", "", time.Time{}, ErrUnauthorized
+	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return "", "", "", time.Time{}, ErrUnauthorized
@@ -400,6 +420,16 @@ func DeviceIDFromContext(ctx context.Context) string {
 	return actor.deviceID
 }
 
+// AccessExpiryFromContext caps delegated grants at the actual bearer lifetime.
+func (s *AuthService) AccessExpiryFromContext(ctx context.Context) (time.Time, error) {
+	actor, ok := ctx.Value(principalKey{}).(principal)
+	if !ok {
+		return time.Time{}, ErrUnauthorized
+	}
+	_, _, _, expires, err := s.ParseAccessToken(actor.accessToken)
+	return expires, err
+}
+
 // ValidateActor revalidates the private, verified principal, including access
 // expiry and the current backing session. Long-lived connections must call it
 // for every operation instead of trusting the original handshake context.
@@ -415,5 +445,15 @@ func (s *AuthService) ValidateActor(ctx context.Context, actorID string) error {
 	if uid != actorID {
 		return ErrUnauthorized
 	}
+	var mustChange bool
+	if err := s.repo.db.QueryRowContext(ctx, `SELECT must_change_password FROM users WHERE id=?`, uid).Scan(&mustChange); err != nil {
+		return err
+	}
+	if mustChange {
+		return ErrPasswordChangeRequired
+	}
 	return nil
 }
+
+// Database is used by the composed server to share audit storage.
+func (s *AuthService) Database() *sql.DB { return s.repo.db }

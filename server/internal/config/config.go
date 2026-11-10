@@ -2,7 +2,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +28,10 @@ const (
 // lifecycle cleanup. Values can be supplied through LINKNESTX_* environment
 // variables; unset values use the safe development defaults below.
 type Config struct {
+	TrustedProxyCIDRs      []string
+	ICEServers             []ICEServer
+	TURNSharedSecret       string
+	TURNCredentialTTL      time.Duration
 	BindAddress            string
 	StorageRoot            string
 	SQLitePath             string
@@ -43,16 +50,18 @@ type Config struct {
 // provide both JWT keys explicitly through the environment.
 func Default() Config {
 	return Config{
-		BindAddress:      defaultBindAddress,
-		StorageRoot:      defaultStorageRoot,
-		SQLitePath:       defaultSQLitePath,
-		JWTSigningKey:    defaultJWTSigningKey,
-		JWTRefreshKey:    defaultJWTRefreshKey,
-		Version:          "dev",
-		FileRetention:    defaultFileRetention,
-		MessageRetention: defaultMessageRetention,
-		AuditRetention:   defaultAuditRetention,
-		CleanupInterval:  time.Hour,
+		ICEServers:        []ICEServer{},
+		TURNCredentialTTL: 10 * time.Minute,
+		BindAddress:       defaultBindAddress,
+		StorageRoot:       defaultStorageRoot,
+		SQLitePath:        defaultSQLitePath,
+		JWTSigningKey:     defaultJWTSigningKey,
+		JWTRefreshKey:     defaultJWTRefreshKey,
+		Version:           "dev",
+		FileRetention:     defaultFileRetention,
+		MessageRetention:  defaultMessageRetention,
+		AuditRetention:    defaultAuditRetention,
+		CleanupInterval:   time.Hour,
 	}
 }
 
@@ -61,6 +70,37 @@ func Default() Config {
 // "720h" or "30d" is not accepted; use "720h").
 func Load() (Config, error) {
 	cfg := Default()
+	if raw := strings.TrimSpace(os.Getenv("LINKNESTX_TRUSTED_PROXY_CIDRS")); raw != "" {
+		if len(raw) > 4096 {
+			return Config{}, fmt.Errorf("invalid trusted proxy CIDRs")
+		}
+		for _, value := range strings.Split(raw, ",") {
+			value = strings.TrimSpace(value)
+			if _, err := netip.ParsePrefix(value); err != nil {
+				return Config{}, fmt.Errorf("invalid trusted proxy CIDR")
+			}
+			cfg.TrustedProxyCIDRs = append(cfg.TrustedProxyCIDRs, value)
+		}
+		if len(cfg.TrustedProxyCIDRs) > 32 {
+			return Config{}, fmt.Errorf("too many trusted proxy CIDRs")
+		}
+	}
+	cfg.TURNSharedSecret = os.Getenv("LINKNESTX_TURN_SHARED_SECRET")
+	if value := strings.TrimSpace(os.Getenv("LINKNESTX_ICE_SERVERS")); value != "" {
+		if len(value) > 32768 || json.Unmarshal([]byte(value), &cfg.ICEServers) != nil {
+			return Config{}, fmt.Errorf("invalid LINKNESTX_ICE_SERVERS JSON")
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("LINKNESTX_TURN_CREDENTIAL_TTL")); value != "" {
+		ttl, err := time.ParseDuration(value)
+		if err != nil || ttl < time.Minute || ttl > time.Hour {
+			return Config{}, fmt.Errorf("LINKNESTX_TURN_CREDENTIAL_TTL must be between 1m and 1h")
+		}
+		cfg.TURNCredentialTTL = ttl
+	}
+	if err := validateICE(cfg); err != nil {
+		return Config{}, err
+	}
 	setString(&cfg.BindAddress, "LINKNESTX_BIND_ADDRESS")
 	setString(&cfg.StorageRoot, "LINKNESTX_STORAGE_ROOT")
 	setString(&cfg.SQLitePath, "LINKNESTX_SQLITE_PATH")
@@ -73,7 +113,7 @@ func Load() (Config, error) {
 	if (cfg.BootstrapAdminUsername == "") != (cfg.BootstrapAdminPassword == "") {
 		return Config{}, fmt.Errorf("bootstrap administrator username and password must be provided together")
 	}
-	if cfg.BootstrapAdminPassword != "" && utf8.RuneCountInString(cfg.BootstrapAdminPassword) < 8 {
+	if cfg.BootstrapAdminPassword != "" && (utf8.RuneCountInString(cfg.BootstrapAdminPassword) < 8 || len(cfg.BootstrapAdminPassword) > 1024 || !utf8.ValidString(cfg.BootstrapAdminPassword)) {
 		return Config{}, fmt.Errorf("bootstrap administrator password must be at least 8 characters")
 	}
 
@@ -100,7 +140,47 @@ func Load() (Config, error) {
 		*item.to = duration
 	}
 
+	if err := validateExposure(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// ICEServer uses the WebRTC URL list format. Shared TURN secrets are kept in
+// Config only; callers receive either static or derived temporary credentials.
+type ICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
+func validateICE(cfg Config) error {
+	if len(cfg.ICEServers) > 16 {
+		return fmt.Errorf("too many ICE servers")
+	}
+	for _, server := range cfg.ICEServers {
+		if len(server.URLs) == 0 || len(server.URLs) > 8 || len(server.Username) > 1024 || len(server.Credential) > 4096 {
+			return fmt.Errorf("invalid ICE server")
+		}
+		turn := false
+		for _, raw := range server.URLs {
+			u, err := url.Parse(raw)
+			if err != nil || len(raw) > 2048 || strings.ContainsAny(raw, " \t\r\n") || u.Opaque == "" || u.Fragment != "" {
+				return fmt.Errorf("invalid ICE server URL")
+			}
+			switch u.Scheme {
+			case "stun", "stuns":
+			case "turn", "turns":
+				turn = true
+			default:
+				return fmt.Errorf("invalid ICE server URL scheme")
+			}
+		}
+		if (server.Username == "") != (server.Credential == "") || (turn && cfg.TURNSharedSecret == "" && server.Username == "") {
+			return fmt.Errorf("TURN requires paired static credentials or a shared secret")
+		}
+	}
+	return nil
 }
 
 func setString(target *string, name string) {

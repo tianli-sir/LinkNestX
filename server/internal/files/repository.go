@@ -10,7 +10,7 @@ import (
 )
 
 func recordAudit(ctx context.Context, tx *sql.Tx, actor, action, file, version string, at time.Time) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO audit_events(id,actor_id,action,file_id,version_id,created_at) VALUES(?,?,?,?,?,?)`, uuid.NewString(), actor, action, file, version, stamp(at))
+	_, err := tx.ExecContext(ctx, `INSERT INTO audit_events(id,actor_id,action,file_id,version_id,device_id,created_at) VALUES(?,?,?,?,?,?,?)`, uuid.NewString(), actor, action, file, version, auth.DeviceIDFromContext(ctx), stamp(at))
 	return err
 }
 func (s *FileService) List(ctx context.Context, actorID string, in ListInput) ([]File, error) {

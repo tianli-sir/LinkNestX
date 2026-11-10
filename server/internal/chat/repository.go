@@ -43,7 +43,7 @@ func scanMessage(row scanner) (Message, error) {
 }
 func memberInTransaction(ctx context.Context, tx *sql.Tx, actorID, groupID string) error {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM group_members m JOIN users u ON u.id=m.user_id JOIN sessions s ON s.user_id=u.id WHERE m.group_id=? AND m.user_id=? AND u.disabled=0 AND s.id=? AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday('now')`, groupID, actorID, auth.SessionIDFromContext(ctx)).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM group_members m JOIN users u ON u.id=m.user_id JOIN sessions s ON s.user_id=u.id WHERE m.group_id=? AND m.user_id=? AND u.disabled=0 AND u.must_change_password=0 AND s.id=? AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday('now')`, groupID, actorID, auth.SessionIDFromContext(ctx)).Scan(&count)
 	if err != nil {
 		return err
 	}

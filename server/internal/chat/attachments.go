@@ -82,7 +82,7 @@ func attachmentPublisherInTransaction(ctx context.Context, tx *sql.Tx, actorID, 
 		return nil
 	}
 	var count int
-	adminErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id JOIN sessions s ON s.user_id=u.id WHERE ur.user_id=? AND r.name='admin' AND u.disabled=0 AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday('now')`, actorID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&count)
+	adminErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id JOIN sessions s ON s.user_id=u.id WHERE ur.user_id=? AND r.name='admin' AND u.disabled=0 AND u.must_change_password=0 AND s.id=? AND s.device_id=? AND s.revoked_at IS NULL AND julianday(s.expires_at)>julianday('now')`, actorID, auth.SessionIDFromContext(ctx), auth.DeviceIDFromContext(ctx)).Scan(&count)
 	if adminErr != nil {
 		return adminErr
 	}

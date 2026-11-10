@@ -35,7 +35,7 @@ func loadFile(ctx context.Context, q queryer, id string) (fileState, error) {
 }
 func activeSession(ctx context.Context, q queryer, actorID, sessionID, deviceID string) error {
 	var count int
-	err := q.QueryRowContext(ctx, `SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.device_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND julianday(s.expires_at)>julianday('now')`, sessionID, actorID, deviceID).Scan(&count)
+	err := q.QueryRowContext(ctx, `SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.device_id=? AND s.revoked_at IS NULL AND u.disabled=0 AND u.must_change_password=0 AND julianday(s.expires_at)>julianday('now')`, sessionID, actorID, deviceID).Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -182,6 +182,13 @@ func (s *FileService) AuthorizeChunk(ctx context.Context, actorID, versionID, ch
 		return ChunkGrant{}, err
 	}
 	expiry := s.now().UTC().Add(2 * time.Minute)
+	accessExpiry, err := s.auth.AccessExpiryFromContext(ctx)
+	if err != nil {
+		return ChunkGrant{}, err
+	}
+	if expiry.After(accessExpiry) {
+		expiry = accessExpiry
+	}
 	if m.ExpiresAt != nil && expiry.After(*m.ExpiresAt) {
 		expiry = *m.ExpiresAt
 	}

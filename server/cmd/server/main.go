@@ -20,6 +20,7 @@ import (
 	"github.com/linknestx/linknestx/server/internal/files"
 	"github.com/linknestx/linknestx/server/internal/groups"
 	httpapi "github.com/linknestx/linknestx/server/internal/http"
+	"github.com/linknestx/linknestx/server/internal/p2p"
 	"github.com/linknestx/linknestx/server/internal/retention"
 )
 
@@ -63,11 +64,14 @@ func run() error {
 	}
 	defer store.Close()
 	fileService := files.NewFileService(conn, service, store, cfg.JWTSigningKey, chatService)
+	peerService := p2p.NewService(conn, service, fileService, cfg)
+	peerHub := p2p.NewHub(peerService)
+	defer peerHub.Close()
 	jobs := retention.Jobs{Files: fileService, Chat: chatService, Audit: audit.NewService(conn, service), Interval: cfg.CleanupInterval}
 
 	server := &stdhttp.Server{
 		Addr:              cfg.BindAddress,
-		Handler:           httpapi.NewRouterWithServices(cfg, service, groupService, chatService, hub, fileService),
+		Handler:           httpapi.NewRouterWithPeers(cfg, service, groupService, chatService, hub, fileService, peerService, peerHub),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -81,13 +85,17 @@ func run() error {
 	jobsDone := make(chan struct{})
 	go func() { defer close(jobsDone); jobs.Run(shutdownContext) }()
 	defer func() { stop(); <-jobsDone }()
+	peersDone := make(chan struct{})
+	go func() { defer close(peersDone); peerService.Run(shutdownContext) }()
+	defer func() { stop(); <-peersDone }()
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
 		<-shutdownContext.Done()
-		hub.Close()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		hub.Close()
+		peerHub.Close()
 		if err := server.Shutdown(shutdown); err != nil {
 			slog.Error("shutdown HTTP server", "error", err)
 			_ = server.Close()

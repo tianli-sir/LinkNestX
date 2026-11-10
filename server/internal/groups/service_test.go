@@ -25,6 +25,10 @@ func groupFixture(t *testing.T) (*GroupService, *auth.AuthService, *sql.DB, auth
 	if _, err := a.BootstrapAdmin(context.Background(), auth.CreateUserInput{Username: "admin", Password: "password123"}); err != nil {
 		t.Fatal(err)
 	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
+		t.Fatal(err)
+	}
 	session, err := a.Login(context.Background(), auth.LoginInput{Username: "admin", Password: "password123"})
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +42,10 @@ func groupFixture(t *testing.T) (*GroupService, *auth.AuthService, *sql.DB, auth
 func groupUser(t *testing.T, a *auth.AuthService, ctx context.Context, name string) (auth.Session, context.Context) {
 	t.Helper()
 	if _, err := a.CreateUser(ctx, auth.CreateUserInput{Username: name, Password: "password123"}); err != nil {
+		t.Fatal(err)
+	}
+	// This fixture models accounts whose initial password was already changed.
+	if _, err := a.Database().Exec(`UPDATE users SET must_change_password=0`); err != nil {
 		t.Fatal(err)
 	}
 	s, err := a.Login(context.Background(), auth.LoginInput{Username: name, Password: "password123"})
