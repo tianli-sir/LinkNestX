@@ -30,13 +30,13 @@ LinkNestX 是自托管团队聊天 + 文件协作平台（Go 服务端 + SQLite�
 
 - 唯一标记：官网 `landing.html:373` 的 `<symbol id="mark">` 线条立方体（viewBox `0 0 32 36`，stroke-width 2；downloads.html:178 有逐字副本，同步替换为同源引用）。
 - 配色（landing.html:10 调色板）：绿 `#17644e`、薄荷 `#b4f3d5`、夜蓝 `#101e2b`、纸白 `#f7f9f8`。
-- 应用图标呈现：纸白圆角方底 + 绿色线条立方体（忠实官网页头观感）；小尺寸（≤32px）变体加粗描边保证可辨。
+- 应用图标呈现：纸白圆角方底（圆角绘制在源图内，保证 Windows/macOS 呈现一致）+ 绿色线条立方体（忠实官网页头观感）；小尺寸（≤32px）变体加粗描边保证可辨。
 
 ### 改动清单
 
 1. **新增 `brand/mark.svg`**：唯一图标源（含小尺寸加粗变体说明）。
 2. **重生成 `client/src-tauri/icons/` 全套**：用 `tauri icon`（Tauri CLI v2）从 ≥1024px 源图生成各尺寸 PNG、`.ico`、`.icns`，产物提交仓库。`tauri.conf.json` 的 `bundle.icon` 引用路径不变。
-3. **重写 `tray.rs`**：程序化绘制线条立方体（32×32），颜色改绿色系；或内嵌 32px PNG。
+3. **重写 `tray.rs`**：删除程序化绘制的蓝"L"，改为 `include_bytes!` 内嵌同一源生成的 32px PNG（与图标源一致，避免手写光栅逻辑）。
 4. **服务端 favicon 路由**：`server/internal/http` 新增 `GET /favicon.ico`、`GET /favicon.svg`（go:embed 二进制），landing.html 与 downloads.html `<head>` 加 `<link rel="icon">`。
 5. **网页版**：新建 `client/public/favicon.svg`（vite 复制到 dist 根 → `/app/favicon.svg`），`client/index.html` 加 `<link rel="icon" href="./favicon.svg" type="image/svg+xml">`。
 6. **React 应用内品牌**：`Icon.tsx` `nest` 键替换为线条立方体 SVG 组件；`desktop.css` `.ln-brand-mark` 配色改官网绿系（登录页绿标纸底、深色侧栏薄荷亮标）。
@@ -73,7 +73,7 @@ ALTER TABLE group_members ADD COLUMN nickname TEXT NULL;
 
 1. `chat.project()`：群消息发送者 DisplayName 改为生效名。`ConversationPage` / 消息列表查询**一次预取整群昵称映射**（`SELECT user_id, nickname FROM group_members WHERE group_id=?`），project() 查内存 map，避免每条消息一次查询。私聊（direct_conversations 存在的 group）不套用。
 2. 已读名单查询（entitledReaders）：SELECT 列加同样的 COALESCE。
-3. `groups/service.go` 成员列表：Member 结构增加 `nickname`（原始值，可空）与生效名字段，查询 COALESCE。
+3. `groups/service.go` 成员列表：Member 结构增加 `nickname`（原始值，可空，供编辑回显）与 `displayName`（生效名，供展示），查询 COALESCE。
 4. 群系统消息（`groups/system_messages.go`）：**新插入**的系统消息正文使用群内生效名；历史系统消息正文中的名字是写入时固化文本，**不回溯**（已知限制；"历史跟随当前昵称"的选择仅针对消息发送者标签）。
 
 **新接口**
@@ -85,7 +85,7 @@ PATCH /api/v1/groups/{groupID}/members/{userID}   body: {"nickname": string}
 - 仅限本人（`userID` 必须等于 actor，否则 403）；空串或省略 = 清除昵称回落全局名。
 - 校验同 `UpdateProfile`：trim、非空时 ≤80 runes、UTF-8 合法、无控制字符。
 - 拒绝私聊会话（group 必须是真实群组，即 direct_conversations 无记录）。
-- 成功后经 hub 发**会话级新事件 `nickname.changed`**（`{groupId, userId, nickname}`），客户端 4 处 `server.event` 监听列表各加该类型触发刷新。不复用 `membership.changed`——它会触发无关的"群组动态"系统通知。
+- 成功后经 hub 发**会话级新事件 `nickname.changed`**（`{groupId, userId, nickname}`）；客户端在现有 `server.event` 监听处（MessagingWorkspace 会话/成员刷新、ConversationView 同步、ProfilePanel 资料刷新）增加对该类型的处理。不复用 `membership.changed`——它会触发无关的"群组动态"系统通知。
 - openapi.yaml 同步登记。
 
 **客户端**
@@ -122,7 +122,7 @@ PATCH /api/v1/groups/{groupID}/members/{userID}   body: {"nickname": string}
 5. **上报重试**（`readTracker.ts`）：
    - `attempts` 计数在不可见→可见、禁用→启用转换时归零；
    - 启用期间对未确认的可见 ID 保留 30s 慢重试（不再永久放弃）；
-   - 收到 400 时剔除毒丸：整批重试一次，再失败则二分定位问题 ID 丢弃，其余继续。
+   - 收到 400 时剔除毒丸：先整批重试一次（排除瞬态错误）；仍 400 则二分定位非法 ID 并从集合中剔除，其余 ID 继续正常上报。
 6. **服务端不改**：保持整批严格语义（`social_handlers_test.go` 已覆盖），毒丸剔除在客户端完成。
 
 ### 新增测试
