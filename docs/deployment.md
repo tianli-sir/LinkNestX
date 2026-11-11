@@ -116,7 +116,7 @@ server {
 
 ## 平台构建与签名
 
-运行 `npm ci` 使用已提交的锁文件；Tauri CLI 是本地依赖，无需全局安装。发布构建先执行 `npm run build`，再使用 `cargo --locked`，禁止以修改锁文件的方式隐式升级依赖。版本号目前在前端包、Tauri 配置和 Cargo manifest 中均为 `0.3.1`；正式升级需同步版本及对应锁文件，并递增 `client/src-tauri/src/update/manifest.rs` 中的 `BUILD_SEQUENCE`。
+运行 `npm ci` 使用已提交的锁文件；Tauri CLI 是本地依赖，无需全局安装。发布构建先执行 `npm run build`，再使用 `cargo --locked`，禁止以修改锁文件的方式隐式升级依赖。版本号目前在前端包、Tauri 配置和 Cargo manifest 中均为 `0.3.2`；正式升级需同步版本及对应锁文件，并递增 `client/src-tauri/src/update/manifest.rs` 中的 `BUILD_SEQUENCE`。
 
 打包前，将 `client/src-tauri/src/deployment.rs` 的 `SERVER_ORIGIN` 设置为自己的服务地址，例如 `https://files.example.com`。该地址是构建期绑定，员工不能在登录界面修改；只改变服务端环境变量不会改变已有客户端的连接地址。独立部署还应在第一次构建前建立自己的更新签名密钥，并将对应公钥写入 `client/update-public-key.json`，详见[更新格式](update-format.md)。已有安装必须继续信任同一发布密钥；不要用重新生成公钥的方式替换已分发客户端的信任关系。
 

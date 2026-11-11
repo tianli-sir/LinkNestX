@@ -444,6 +444,37 @@ fn copy_tree(m: &Manifest, from: &Path, to: &Path) -> Result<()> {
     }
     files::verify_tree(to, m)
 }
+fn helper_spawn_error(error: std::io::Error) -> crate::TransferError {
+    let message = "无法启动更新助手，请重试；若仍失败，请下载安装包手动安装";
+    match error.raw_os_error() {
+        Some(code) => bad(&format!("{message}（系统错误码 {code}）")),
+        None => bad(message),
+    }
+}
+fn copy_and_spawn_helper(
+    source: &Path,
+    helper: &Path,
+    journal: &Path,
+    prepare_job: impl FnOnce(u64, String) -> Result<Command>,
+) -> Result<Child> {
+    let mut input = files::regular(source)?;
+    let size = input.metadata()?.len();
+    let mut output = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(helper)?;
+    std::io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    // Windows cannot launch an executable while it remains open for writing.
+    drop(output);
+    drop(input);
+    files::set_mode(helper, 0o700)?;
+    let hash = files::file_hash(helper, size)?;
+    prepare_job(size, hash)?.spawn().map_err(|error| {
+        let _ = files::atomic_write(journal, b"cancelled");
+        helper_spawn_error(error)
+    })
+}
 pub struct Handoff {
     pub child: Child,
     _lock: File,
@@ -493,39 +524,29 @@ pub fn prepare_handoff(root: &Path, envelope: &[u8], stage: &Path) -> Result<Han
     let tx = Transaction::new(target, staged, jobdir.join("phase"), &id)?;
     let current = std::env::current_exe()?;
     let helper = helper_path(&jobdir);
-    let mut input = files::regular(&current)?;
-    let size = input.metadata()?.len();
-    let mut output = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&helper)?;
-    std::io::copy(&mut input, &mut output)?;
-    output.sync_all()?;
-    files::set_mode(&helper, 0o700)?;
-    let job = Job {
-        id: id.clone(),
-        tx,
-        parent_pid: std::process::id(),
-        nonce: uuid::Uuid::new_v4().to_string(),
-        helper_sha256: files::file_hash(&helper, size)?,
-        helper_size: size,
-        version: m.version,
-        sequence: m.build_sequence,
-        prepared_at: chrono::Utc::now().timestamp(),
-    };
-    files::atomic_write(&jobdir.join("manifest.json"), envelope)?;
-    files::atomic_write(&jobdir.join("job.json"), &serde_json::to_vec(&job)?)?;
-    files::atomic_write(&updates.join("pending"), id.as_bytes())?;
-    let child = Command::new(&helper)
-        .args(["--linknestx-update-helper", &id])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            let _ = files::atomic_write(&jobdir.join("phase"), b"cancelled");
-            crate::TransferError::from(error)
-        })?;
+    let child = copy_and_spawn_helper(&current, &helper, &jobdir.join("phase"), |size, hash| {
+        let job = Job {
+            id: id.clone(),
+            tx,
+            parent_pid: std::process::id(),
+            nonce: uuid::Uuid::new_v4().to_string(),
+            helper_sha256: hash,
+            helper_size: size,
+            version: m.version,
+            sequence: m.build_sequence,
+            prepared_at: chrono::Utc::now().timestamp(),
+        };
+        files::atomic_write(&jobdir.join("manifest.json"), envelope)?;
+        files::atomic_write(&jobdir.join("job.json"), &serde_json::to_vec(&job)?)?;
+        files::atomic_write(&updates.join("pending"), id.as_bytes())?;
+        let mut command = Command::new(&helper);
+        command
+            .args(["--linknestx-update-helper", &id])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        Ok(command)
+    })?;
     Ok(Handoff {
         child,
         _lock: installation_lock,
@@ -865,6 +886,106 @@ fn apply_and_monitor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn copied_update_helper_launches_and_lists_known_test() {
+        let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let source = std::env::current_exe().unwrap();
+        let helper = helper_path(root.path());
+        let journal = root.path().join("phase");
+        let source_size = fs::metadata(&source).unwrap().len();
+        let source_hash = files::file_hash(&source, source_size).unwrap();
+        let child = copy_and_spawn_helper(&source, &helper, &journal, |size, hash| {
+            assert_eq!(size, source_size);
+            assert_eq!(hash, source_hash);
+            files::atomic_write(&journal, b"prepared")?;
+            let mut command = Command::new(&helper);
+            command
+                .arg("--list")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            Ok(command)
+        })
+        .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "copied helper failed: {:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout)
+            .contains("update::install::tests::child_health_fixture: test"));
+        assert_eq!(fs::read(&journal).unwrap(), b"prepared");
+    }
+
+    #[test]
+    fn helper_spawn_failure_cancels_job_and_reports_os_code() {
+        let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let source = std::env::current_exe().unwrap();
+        let helper = helper_path(root.path());
+        let journal = root.path().join("phase");
+        let error = copy_and_spawn_helper(&source, &helper, &journal, |_, _| {
+            files::atomic_write(&journal, b"prepared")?;
+            let mut command = Command::new(&helper);
+            command.current_dir(root.path().join("missing-working-directory"));
+            Ok(command)
+        })
+        .unwrap_err();
+        assert_eq!(fs::read(&journal).unwrap(), b"cancelled");
+        assert!(error.error.contains("更新助手"));
+        assert!(error.error.contains("手动安装"));
+        assert!(error.error.contains("系统错误码"));
+        assert!(!error.error.contains(&root.path().display().to_string()));
+    }
+
+    #[test]
+    fn helper_spawn_error_does_not_expose_local_paths() {
+        let path = r"C:\Users\private-user\AppData\Local\helper.exe";
+        let error = helper_spawn_error(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            path,
+        ));
+        assert!(!error.error.contains(path));
+        assert!(!error.error.contains("private-user"));
+        assert!(error.error.contains("手动安装"));
+        assert!(!error.error.contains("系统错误码"));
+        let error = helper_spawn_error(std::io::Error::from_raw_os_error(32));
+        assert!(error.error.contains("系统错误码 32"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_helper_with_open_writer_and_launches_after_close() {
+        let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let helper = helper_path(root.path());
+        let mut input = files::regular(&std::env::current_exe().unwrap()).unwrap();
+        let mut output = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&helper)
+            .unwrap();
+        std::io::copy(&mut input, &mut output).unwrap();
+        output.sync_all().unwrap();
+        let error = Command::new(&helper).arg("--list").output().unwrap_err();
+        eprintln!(
+            "Windows executable write-handle control: raw_os_error={:?}",
+            error.raw_os_error()
+        );
+        assert!(error.raw_os_error().is_some());
+        drop(output);
+        drop(input);
+        let output = Command::new(&helper).arg("--list").output().unwrap();
+        assert!(
+            output.status.success(),
+            "helper after writer closed: {:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout)
+            .contains("update::install::tests::child_health_fixture: test"));
+    }
+
     #[test]
     fn child_health_fixture() {
         let Some(path) = std::env::var_os("LINKNESTX_TEST_HEALTH") else {

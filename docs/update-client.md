@@ -17,6 +17,8 @@ Existing installations require releases signed by the private key corresponding
 to their embedded public key; replacing the source public key does not rotate
 the trust held by already installed clients.
 
+Windows 0.3.2 / build sequence 4 fixes the restart helper launch. Older standard Windows clients can fail before launching their update helper because its executable is still open for writing. These installations need one manual installation of 0.3.2: finish transfers, quit from the tray, then run the current-user installer over the existing installation. Keep the existing application data; do not uninstall or delete transfer state. This maintenance release targets standard Windows; macOS and Win7 installers remain at 0.3.1.
+
 The desktop begins background checks after local startup, then every six hours.
 Checks and object GETs use only the compiled server origin, no authentication or
 cookies, no proxy discovery and no redirects. Downloads use one request at a time

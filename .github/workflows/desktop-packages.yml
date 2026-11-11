@@ -49,6 +49,9 @@ jobs:
           npm --prefix client test
           npm --prefix client run build
           cargo test --locked --no-fail-fast --manifest-path client/src-tauri/Cargo.toml
+      - name: Verify Windows update helper launch regression
+        if: runner.os == 'Windows'
+        run: cargo test --locked --manifest-path client/src-tauri/Cargo.toml --lib update::install::tests:: -- --nocapture
       - name: Diagnose Windows native loader failure
         if: failure() && runner.os == 'Windows' && steps.native-tests.outcome == 'failure'
         shell: pwsh
