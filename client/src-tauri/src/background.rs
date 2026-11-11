@@ -27,12 +27,27 @@ impl Default for BackgroundState {
 struct Reducer {
     snapshot: BackgroundSnapshot,
     seen: VecDeque<String>,
+    user_id: Option<String>,
 }
 impl Reducer {
     fn observe(&mut self, name: &str, value: &Value, hidden: bool) -> Option<&'static str> {
         let mut notice = None;
         let mut key = None;
         match name {
+            "session.identity" => {
+                self.user_id=value["userId"].as_str().map(str::to_owned);
+                self.seen.clear();
+            }
+            "server.event" if value["type"] == "message.created" => {
+                let message=&value["message"];
+                if self.user_id.as_deref()==message["senderId"].as_str() { return None; }
+                notice=Some(if message["kind"]=="system" {"群组动态已更新，请打开 LinkNestX 查看。"} else {"收到新消息，请打开 LinkNestX 查看。"});
+                key=message["id"].as_str().map(|id|format!("message:{id}"));
+            }
+            "server.event" if value["type"] == "contacts.changed" => {
+                notice=Some("好友申请或联系人状态已更新，请打开 LinkNestX 查看。");
+                key=Some(value["eventId"].as_str().map(str::to_owned).unwrap_or_else(||format!("contacts:{}",chrono::Utc::now().timestamp()/5)));
+            }
             "sharing.changed" => {
                 self.snapshot.sharing_enabled = value["enabled"].as_bool().unwrap_or(false);
                 if !self.snapshot.sharing_enabled {
@@ -109,7 +124,7 @@ pub fn observe<R: tauri::Runtime>(app: &tauri::AppHandle<R>, name: &str, value: 
     };
     let hidden = app
         .get_webview_window("main")
-        .is_none_or(|w| !w.is_visible().unwrap_or(true) || w.is_minimized().unwrap_or(false));
+        .is_none_or(|w| !w.is_visible().unwrap_or(true) || w.is_minimized().unwrap_or(false) || !w.is_focused().unwrap_or(false));
     let notice = {
         let mut inner = state.inner.lock().unwrap();
         inner.observe(name, value, hidden)
@@ -176,6 +191,19 @@ pub fn observe<R: tauri::Runtime>(app: &tauri::AppHandle<R>, name: &str, value: 
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn new_message_notices_hide_content_exclude_self_and_deduplicate() {
+        let mut r=Reducer::default();
+        r.observe("session.identity", &json!({"userId":"me"}),false);
+        let mine=json!({"type":"message.created","message":{"id":"m0","senderId":"me","body":"secret"}});
+        assert!(r.observe("server.event",&mine,true).is_none());
+        let incoming=json!({"type":"message.created","message":{"id":"m1","senderId":"other","body":"secret"}});
+        assert_eq!(r.observe("server.event",&incoming,true),Some("收到新消息，请打开 LinkNestX 查看。"));
+        assert!(r.observe("server.event",&incoming,true).is_none());
+        let visible=json!({"type":"message.created","message":{"id":"m2","senderId":"other"}});
+        assert!(r.observe("server.event",&visible,false).is_none());
+        assert!(r.observe("server.event",&visible,true).is_none());
+    }
     #[test]
     fn hidden_notifications_are_once_and_visible_events_do_not_replay() {
         let mut r = Reducer::default();

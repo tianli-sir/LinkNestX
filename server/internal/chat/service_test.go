@@ -106,7 +106,11 @@ func TestChatIdempotentOrderingAndOfflinePagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := f.service.List(f.ctx, f.session.User.ID, f.group.ID, "", 1)
+	creation, err := f.service.List(f.ctx, f.session.User.ID, f.group.ID, "", 1)
+	if err != nil || len(creation.Messages) != 1 || creation.Messages[0].SystemType != "group.created" {
+		t.Fatalf("group creation notice %+v %v", creation, err)
+	}
+	page, err := f.service.List(f.ctx, f.session.User.ID, f.group.ID, creation.NextCursor, 1)
 	if err != nil || len(page.Messages) != 1 || page.Messages[0].ID != first.ID || !page.HasMore {
 		t.Fatalf("first page=%+v err=%v", page, err)
 	}
@@ -156,7 +160,7 @@ func TestChatACLAndRevocation(t *testing.T) {
 		t.Fatalf("removed retry: %v", err)
 	}
 	page, err := f.service.List(f.ctx, f.session.User.ID, f.group.ID, "", 10)
-	if err != nil || len(page.Messages) != 1 {
+	if err != nil || len(page.Messages) != 4 || page.Messages[2].Kind != "text" || page.Messages[2].ClientMessageID != "one" || page.Messages[3].SystemType != "group.member_removed" {
 		t.Fatalf("remaining history=%+v err=%v", page, err)
 	}
 	if err := f.auth.RevokeSession(f.ctx, f.session.ID); err != nil {
@@ -185,10 +189,10 @@ func TestRetentionUsesUTCCalendarYearsAndKeepsTombstones(t *testing.T) {
 		t.Fatalf("repeat expired=%d err=%v", count, err)
 	}
 	page, err := f.service.List(f.ctx, f.session.User.ID, f.group.ID, "", 10)
-	if err != nil || len(page.Messages) != 3 {
+	if err != nil || len(page.Messages) != 4 {
 		t.Fatalf("history=%+v err=%v", page, err)
 	}
-	if page.Messages[0].Body != nil || page.Messages[1].Body != nil || page.Messages[2].Body == nil || page.Messages[0].ExpiredAt == nil {
+	if page.Messages[0].SystemType != "group.created" || page.Messages[1].Body != nil || page.Messages[2].Body != nil || page.Messages[3].Body == nil || page.Messages[1].ExpiredAt == nil {
 		t.Fatalf("retained content=%+v", page.Messages)
 	}
 }

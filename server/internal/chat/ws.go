@@ -164,7 +164,7 @@ func (h *Hub) sendMessage(p *peer, in ClientEvent) {
 }
 func (h *Hub) Publish(m Message) {
 	for _, p := range h.snapshot() {
-		h.send(p, Event{Type: "message.created", GroupID: m.GroupID, Message: &m})
+		h.send(p, Event{Type: "message.created", EventID: m.ID, GroupID: m.GroupID, ConversationID: m.GroupID, Message: &m})
 	}
 }
 func (h *Hub) broadcastPresence(changed *peer, online bool) {

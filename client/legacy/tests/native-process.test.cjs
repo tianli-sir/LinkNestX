@@ -16,6 +16,7 @@ test('real native process preserves framing, concurrent requests and opaque dest
     const values = await Promise.all(Array.from({ length: 12 }, () => host.request('client_configuration')));
     assert(values.every(value => value.platform === 'windows-legacy' && value.capabilities.nativeTransfers && !value.capabilities.updates));
     assert(values.every(value => value.serverOrigin && !('accessToken' in value)));
+    assert.deepEqual(await host.request('session_identity'),{userId:null,scope:null});
     await assert.rejects(host.request('login', { username: 'test', password: 'test', serverUrl: 'https://invalid.example' }), /格式/);
     await assert.rejects(host.request('start_download', { versionId: 'version', destination: path.join(directory, 'never.txt') }));
     assert.equal(await fs.stat(path.join(directory, 'never.txt')).then(() => true, () => false), false);

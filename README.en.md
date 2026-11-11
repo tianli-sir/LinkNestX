@@ -8,7 +8,7 @@ A self-hosted workspace for team chat and file collaboration. Conversations, Mar
 
 [简体中文](README.md) · **English**
 
-![Version](https://img.shields.io/badge/version-0.3.0%20preview-0f766e?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.1%20preview-0f766e?style=flat-square)
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8D8?style=flat-square&logo=tauri&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white)

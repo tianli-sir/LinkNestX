@@ -597,7 +597,7 @@ async fn run_smoke() {
             .unwrap();
     }
     let chat_path = format!("/api/v1/groups/{group_id}/messages");
-    b.auth
+    let sent_message = b.auth
         .json(
             "POST",
             &chat_path,
@@ -608,7 +608,12 @@ async fn run_smoke() {
         .await
         .unwrap();
     let history = c.auth.json("GET", &chat_path, None).await.unwrap();
-    assert_eq!(history["messages"][0]["body"], "native/Go acceptance");
+    let messages = history["messages"].as_array().unwrap();
+    let received = messages.iter().find(|message| message["id"] == sent_message["id"]).unwrap();
+    assert_eq!(received["body"], "native/Go acceptance");
+    assert_eq!(received["senderId"], b.user);
+    assert_eq!(received["kind"], "text");
+    assert!(messages.iter().any(|message| message["kind"] == "system"));
     assert_eq!(
         a.auth
             .json("GET", &chat_path, None)

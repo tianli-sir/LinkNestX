@@ -1,7 +1,9 @@
 package releases
 
 import (
+	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"html/template"
@@ -133,7 +135,15 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/downloads" || r.URL.Path == "/downloads/" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-		downloadPage.Execute(w, readCatalog(h.root))
+		var page bytes.Buffer
+		if err := downloadPage.Execute(&page, buildDownloadPage(readCatalog(h.root))); err != nil {
+			http.Error(w, "download page unavailable", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodHead {
+			w.Write(page.Bytes())
+		}
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/releases/") {
@@ -193,4 +203,7 @@ func serveRegular(w http.ResponseWriter, r *http.Request, root, relative string)
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
-var downloadPage = template.Must(template.New("downloads").Parse(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>下载 LinkNestX</title><style>body{margin:0;background:#f4f7f7;color:#182c2b;font-family:system-ui,"Microsoft YaHei",sans-serif}main{max-width:760px;margin:8vh auto;padding:32px}a{color:#0f766e}h1{font-size:36px;letter-spacing:-1px}p{line-height:1.7;color:#526b68}.release{padding:20px;margin:16px 0;border:1px solid #dce7e4;border-radius:12px;background:#fff}.release a{font-weight:650}.hint{font-size:13px}code{overflow-wrap:anywhere}</style></head><body><main><a href="/app/">进入网页版</a><h1>让协作一直在线。</h1><p>下载 LinkNestX 桌面客户端，使用大文件传输、断点恢复和后台下载。Windows 与 macOS 使用同一工作区。</p>{{range .Releases}}<section class="release"><a href="{{.URL}}">下载 {{if eq .Platform "windows7"}}Windows 7 SP1{{else if eq .Platform "windows"}}Windows 10/11{{else}}{{.Platform}}{{end}} · {{if or (eq .Platform "windows7") (eq .Platform "windows")}}{{if eq .Arch "x86"}}32 位{{else}}64 位{{end}}{{else}}{{.Arch}}{{end}} · v{{.Version}}</a><p>{{.Name}} · {{.Size}} 字节</p>{{if eq .Platform "windows7"}}<p class="hint">适用于 Windows 7 SP1，无需 WebView2。</p>{{else if eq .Platform "windows"}}<p class="hint">适用于 Windows 10/11，已包含 WebView2 离线安装包。</p>{{end}}<p class="hint">SHA-256：<code>{{.SHA256}}</code></p></section>{{else}}<section class="release">客户端安装包暂未提供，请联系管理员。</section>{{end}}<p class="hint">网页版支持聊天和单个不超过 1 GB 的文件下载；上传和后台任务请使用客户端。请使用管理员提供的员工账号。</p></main></body></html>`))
+//go:embed downloads.html
+var downloadPageHTML string
+
+var downloadPage = template.Must(template.New("downloads").Parse(downloadPageHTML))

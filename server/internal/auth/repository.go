@@ -106,6 +106,10 @@ func (r *Repository) createUser(ctx context.Context, in CreateUserInput, hash, i
 			return User{}, ErrBootstrapComplete
 		}
 	} else {
+		// Acquire the write lock before rechecking current administrator state.
+		if _, err := tx.ExecContext(ctx, "UPDATE sessions SET id=id WHERE id=?", actorSessionID); err != nil {
+			return User{}, err
+		}
 		var authorized int
 		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users u
    JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
@@ -119,8 +123,22 @@ func (r *Repository) createUser(ctx context.Context, in CreateUserInput, hash, i
 			return User{}, ErrAdminRequired
 		}
 	}
+	var loginCollision bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM profiles WHERE account_number=? OR (?<>'' AND account_number=?))", in.Username, in.Email, in.Email).Scan(&loginCollision); err != nil {
+		return User{}, err
+	}
+	if loginCollision {
+		return User{}, ErrAccountNumberConflict
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,username,email,password_hash,disabled,must_change_password,created_at,updated_at) VALUES(?,?,?,?,0,1,?,?)`, id, in.Username, in.Email, hash, now, now)
 	if err != nil {
+		return User{}, err
+	}
+	accountNumber, err := allocateAccountNumber(ctx, tx, id, in.AccountNumber)
+	if err != nil {
+		return User{}, err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE profiles SET account_number=? WHERE user_id=?", accountNumber, id); err != nil {
 		return User{}, err
 	}
 	for _, role := range roles {

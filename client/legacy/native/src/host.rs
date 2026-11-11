@@ -101,6 +101,8 @@ impl Host {
                         a.device_id,
                     )
                     .await?;
+                self.events
+                    .emit("session.identity", json!({"userId":session.user.id}));
                 self.socket
                     .start(self.auth.clone(), self.events.clone())
                     .await;
@@ -119,6 +121,7 @@ impl Host {
                 let paused = self.transfers.pause_all().await;
                 self.transfers.set_peer_sources(vec![]).await;
                 let logout = self.auth.logout().await;
+                self.events.emit("session.identity", json!({"userId":null}));
                 paused?;
                 logout?;
                 Ok(Value::Null)
@@ -167,6 +170,18 @@ impl Host {
                 Ok(Value::Null)
             }
             "selection_scope" => Ok(json!(self.auth.selection_scope().await?)),
+            // Reliable main-process snapshot for recovery after the event pipe
+            // overflows. Keep it off the renderer allowlist and omit credentials.
+            "session_identity" => {
+                let _guard = self.lifecycle.lock().await;
+                Ok(match self.auth.current().await {
+                    Ok(current) => json!({
+                        "userId":current.session.user.id,
+                        "scope":format!("{}:{}", current.owner(), current.session.id)
+                    }),
+                    Err(_) => json!({"userId":null,"scope":null}),
+                })
+            }
             // The following three commands are private to the shell main process. They are
             // deliberately absent from the preload/renderer command allowlist.
             "import_files" => {
@@ -312,6 +327,15 @@ impl Host {
                 p.autostart = a.preferences.autostart;
                 p.validate()?;
                 self.transfers.set_sharing_policy(p).await?;
+                Ok(Value::Null)
+            }
+            "get_connection_status" => Ok(self.socket.status()),
+            "reconnect_connection" => {
+                let _guard = self.lifecycle.lock().await;
+                self.auth.current().await?;
+                self.socket
+                    .start(self.auth.clone(), self.events.clone())
+                    .await;
                 Ok(Value::Null)
             }
             "get_background_status" => Ok(
@@ -508,6 +532,12 @@ mod tests {
     async fn native_boundary_refuses_unknown_commands_paths_and_session_tokens() {
         let root = tempfile::tempdir().unwrap();
         let host = Host::open(root.path(), Arc::new(crate::events::NoopEvents)).unwrap();
+        assert_eq!(
+            host.dispatch("session_identity", Value::Null)
+                .await
+                .unwrap(),
+            json!({"userId":null,"scope":null})
+        );
         assert!(host
             .dispatch("read_file", json!({"path":"/etc/passwd"}))
             .await
@@ -572,6 +602,12 @@ mod tests {
             .await
             .unwrap();
         let scope = host.dispatch("selection_scope", Value::Null).await.unwrap();
+        let identity = host
+            .dispatch("session_identity", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(identity, json!({"scope":scope,"userId":"first"}));
+        assert!(!identity.to_string().contains("native-only"));
         let source = root.path().join("attachment.txt");
         std::fs::write(&source, b"content").unwrap();
         let selected = host
@@ -588,9 +624,21 @@ mod tests {
             .await
             .unwrap();
         host.dispatch("logout", Value::Null).await.unwrap();
+        assert_eq!(
+            host.dispatch("session_identity", Value::Null)
+                .await
+                .unwrap(),
+            json!({"userId":null,"scope":null})
+        );
         auth.login(&origin, "second", "password", None)
             .await
             .unwrap();
+        let identity = host
+            .dispatch("session_identity", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(identity["userId"], "second");
+        assert_ne!(identity["scope"], scope);
         assert!(host
             .dispatch("import_files", json!({"scope":scope,"paths":[source]}))
             .await

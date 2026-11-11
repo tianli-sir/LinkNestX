@@ -136,6 +136,8 @@ fn main() {
             commands::resume_transfer,
             commands::list_transfers,
             commands::get_background_status,
+            commands::get_connection_status,
+            commands::reconnect_connection,
             commands::send_server_event,
             commands::pick_download_destination
         ])

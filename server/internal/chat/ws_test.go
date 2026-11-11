@@ -143,7 +143,7 @@ func TestWebSocketRevokedSessionCannotReceiveOrSend(t *testing.T) {
 		t.Fatalf("revoked session received %+v", e)
 	}
 	page, err := f.service.List(f.ctx, f.session.User.ID, f.group.ID, "", 100)
-	if err != nil || len(page.Messages) != 1 {
+	if err != nil || len(page.Messages) != 3 || page.Messages[2].ClientMessageID != "secret" {
 		t.Fatalf("revoked send persisted: %+v err=%v", page, err)
 	}
 }
@@ -177,6 +177,10 @@ func TestWebSocketMembershipChangesAndOfflineCatchup(t *testing.T) {
 	// Existing sockets must begin receiving after membership is granted.
 	if err := f.groups.AddMember(f.ctx, f.session.User.ID, f.group.ID, member.User.ID, "member"); err != nil {
 		t.Fatal(err)
+	}
+	joined := readEvent(t, c, "message.created", "")
+	if joined.Message == nil || joined.Message.SystemType != "group.member_added" {
+		t.Fatalf("membership event %+v", joined)
 	}
 	first, err := f.service.Append(f.ctx, f.session.User.ID, AppendInput{GroupID: f.group.ID, ClientMessageID: "live", Body: "live"})
 	if err != nil {

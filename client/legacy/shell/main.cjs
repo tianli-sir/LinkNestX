@@ -4,13 +4,17 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const os=require('node:os');
 const {NativeHost}=require('./native.cjs');
+const {createNoticeReducer}=require('./notices.cjs');
+const reduceNotice=createNoticeReducer();
+const {createSessionRecovery}=require('./session-recovery.cjs');
+const sessionRecovery=createSessionRecovery(reduceNotice);
 const {validateRequest,safeAsset,mayOpenExternal,rendererSession}=require('./boundary.cjs');
 const ORIGIN='linknestx-legacy://app';
 protocol.registerSchemesAsPrivileged([{scheme:'linknestx-legacy',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:false}}]);
 app.setName('LinkNestX Legacy');
 let window,host,tray,quitting=false,dialogActive=false;
 let resyncRunning=false,resyncAgain=false;
-const subscriptions=new Set();
+let connectionRevision=0;
 const appRoot=app.isPackaged?path.join(process.resourcesPath,'app'):path.resolve(__dirname,'..');
 const uiRoot=path.join(appRoot,'ui');
 const nativeRoot=app.isPackaged?path.join(process.resourcesPath,'native'):path.join(appRoot,'native-bin');
@@ -25,12 +29,7 @@ async function resync(){
   try {
     do {
       resyncAgain=false;
-      const scope=await host.request('selection_scope');
-      const [tasks,status]=await Promise.all([host.request('list_transfers'),host.request('get_background_status')]);
-      if(scope!==await host.request('selection_scope'))continue;
-      for(const task of tasks)emit('transfer.updated',task);
-      emit('service.status',status);
-      emit('server.event',{type:'session.ready',localResync:true});
+      await sessionRecovery.resync(command=>host.request(command),emit,()=>connectionRevision);
     } while(resyncAgain&&!quitting);
   }catch{ /* Logged-out sessions have no snapshots to restore. */ }
   finally{resyncRunning=false;}
@@ -85,6 +84,15 @@ async function invoke(command,input){
     if(process.platform==='win32')app.setLoginItemSettings({name:loginItemName,openAtLogin:!!args.preferences.autostart,path:process.execPath,args:['--hidden']});
     return result;
   }
+  if(command==='login'||command==='logout'){
+    const revision=sessionRecovery.beginChange();
+    try{
+      const result=await host.request(command,args);
+      if(command==='login')sessionRecovery.completeLogin(result,revision);
+      else sessionRecovery.completeLogout(revision);
+      return command==='login'?rendererSession(result):result;
+    }finally{sessionRecovery.finishChange(revision);void resync();}
+  }
   const result=await host.request(command,args);
   return command==='login'?rendererSession(result):result;
 }
@@ -120,12 +128,12 @@ else{
   });
   host=new NativeHost(executable,path.join(app.getPath('userData'),'native'));
   host.on('event',(name,payload)=>{
+    if(name==='connection.changed')connectionRevision++;
     if(name==='native.resync'){void resync();return;}
+    if(name==='session.identity'){sessionRecovery.observe(payload);emit(name,payload);return;}
     emit(name,payload);
-    if(!active()&&name==='transfer.updated'&&['completed','failed'].includes(payload?.state)){
-      const key=`${payload.id}:${payload.state}`;
-      if(!subscriptions.has(key)){subscriptions.add(key);if(subscriptions.size>256)subscriptions.delete(subscriptions.values().next().value);if(Notification.isSupported())new Notification({title:'LinkNestX',body:payload.state==='completed'?'文件传输已完成。':'传输需要处理，请打开应用查看。'}).show();}
-    }
+    const body=reduceNotice(name,payload,!active());
+    if(body&&Notification.isSupported()){const notice=new Notification({title:'LinkNestX',body});notice.on('click',show);notice.show();}
   });
   host.on('unavailable',()=>{emit('service.error',{error:'后台服务已退出，请重新启动应用。'});});
   window=new BrowserWindow({title:'LinkNestX',width:1280,height:840,minWidth:820,minHeight:600,backgroundColor:'#f5f7fa',show:false,autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,devTools:!app.isPackaged}});

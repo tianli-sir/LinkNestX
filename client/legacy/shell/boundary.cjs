@@ -1,7 +1,7 @@
 'use strict';
 const path = require('node:path');
 const COMMANDS = Object.freeze({
-  app_version: [], client_configuration: [], get_background_status: [],
+  app_version: [], client_configuration: [], get_background_status: [], get_connection_status: [], reconnect_connection: [],
   open_external_url: ['url'],
   login: ['username','password','deviceId'], logout: [],
   api_request: ['method','path','body'], send_server_event: ['event'],

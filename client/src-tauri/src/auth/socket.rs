@@ -2,7 +2,7 @@ use super::session::{api_url, AuthManager};
 use crate::{events::EventSink, Result, TransferError};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use std::{sync::Arc, time::Duration};
+use std::{sync::{Arc, atomic::{AtomicU8, Ordering}}, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 mod tests;
 
 pub struct SocketBridge {
+    status: Arc<AtomicU8>,
     run: Mutex<
         Option<(
             CancellationToken,
@@ -23,22 +24,29 @@ pub struct SocketBridge {
 impl Default for SocketBridge {
     fn default() -> Self {
         Self {
+            status: Arc::new(AtomicU8::new(0)),
             run: Mutex::new(None),
         }
     }
 }
 impl SocketBridge {
+    pub fn status(&self) -> Value {
+        json!({"status":match self.status.load(Ordering::SeqCst) {1=>"connecting",2=>"connected",_=>"disconnected"}})
+    }
     pub async fn start(&self, auth: Arc<AuthManager>, events: Arc<dyn EventSink>) {
         self.stop().await;
         let token = CancellationToken::new();
         let cancel = token.clone();
         let (tx, mut rx) = mpsc::channel::<Value>(64);
+        let status=self.status.clone();
+        status.store(1,Ordering::SeqCst);
         let handle = tokio::spawn(async move {
             let mut delay = 1;
             while !cancel.is_cancelled() {
                 let Ok(current) = auth.current().await else {
                     break;
                 };
+                status.store(1,Ordering::SeqCst);
                 events.emit("connection.changed", json!({"status":"connecting"}));
                 let Ok(mut url) = api_url(&current.origin, "/api/v1/ws") else {
                     break;
@@ -56,6 +64,7 @@ impl SocketBridge {
                 match connection {
                     Ok(Ok((socket, _))) => {
                         delay = 1;
+                        status.store(2,Ordering::SeqCst);
                         events.emit("connection.changed", json!({"status":"connected"}));
                         run_connected(socket, &mut rx, &cancel, events.clone()).await;
                     }
@@ -66,10 +75,12 @@ impl SocketBridge {
                     }
                     _ => {}
                 }
+                status.store(0,Ordering::SeqCst);
                 events.emit("connection.changed", json!({"status":"disconnected"}));
                 tokio::select! {_=cancel.cancelled()=>break,_=tokio::time::sleep(Duration::from_secs(delay))=>{}}
                 delay = (delay * 2).min(30);
             }
+            status.store(0,Ordering::SeqCst);
             events.emit("connection.changed", json!({"status":"disconnected"}));
         });
         *self.run.lock().await = Some((token, handle, tx));
@@ -97,6 +108,7 @@ impl SocketBridge {
                 let _ = handle.await;
             }
         }
+        self.status.store(0,Ordering::SeqCst);
     }
 }
 

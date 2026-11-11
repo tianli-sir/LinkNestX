@@ -34,6 +34,8 @@ fn main() {
                 "resume_transfer",
                 "list_transfers",
                 "get_background_status",
+                "get_connection_status",
+                "reconnect_connection",
                 "send_server_event",
                 "pick_download_destination",
             ])),

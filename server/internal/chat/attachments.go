@@ -52,7 +52,7 @@ func (s *ChatService) AppendAttachment(ctx context.Context, actorID string, in A
 	if n == 0 {
 		return Message{}, ErrInvalidInput
 	}
-	m := Message{ID: uuid.NewString(), GroupID: in.GroupID, SenderID: actorID, ClientMessageID: in.ClientMessageID, Body: &in.Name, CreatedAt: s.now().UTC(), FileID: &in.FileID, FileVersionID: &in.FileVersionID}
+	m := Message{Kind: "text", ID: uuid.NewString(), GroupID: in.GroupID, SenderID: actorID, ClientMessageID: in.ClientMessageID, Body: &in.Name, CreatedAt: s.now().UTC(), FileID: &in.FileID, FileVersionID: &in.FileVersionID}
 	status := "available"
 	m.AttachmentStatus = &status
 	result, err := tx.ExecContext(ctx, `INSERT INTO messages(id,group_id,sender_id,client_message_id,body,created_at,file_id,file_version_id) VALUES(?,?,?,?,?,?,?,?)`, m.ID, m.GroupID, m.SenderID, m.ClientMessageID, in.Name, m.CreatedAt.Format(timestampLayout), in.FileID, in.FileVersionID)

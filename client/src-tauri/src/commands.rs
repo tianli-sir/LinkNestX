@@ -103,6 +103,7 @@ pub async fn login(
             device_id,
         )
         .await?;
+    state.events.emit("session.identity", serde_json::json!({"userId":session.user.id}));
     state
         .socket
         .start(state.auth.clone(), state.events.clone())
@@ -124,6 +125,7 @@ pub async fn logout(state: tauri::State<'_, NativeState>) -> Result<()> {
         .events
         .emit("sharing.changed", serde_json::json!({"enabled":false}));
     let logout = state.auth.logout().await;
+    state.events.emit("session.identity", serde_json::json!({"userId":null}));
     paused?;
     logout
 }
@@ -234,6 +236,17 @@ pub fn get_background_status<R: tauri::Runtime>(
 #[tauri::command]
 pub fn client_configuration() -> Value {
     crate::deployment::configuration()
+}
+#[tauri::command]
+pub fn get_connection_status(state: tauri::State<'_, NativeState>) -> Value {
+    state.socket.status()
+}
+#[tauri::command]
+pub async fn reconnect_connection(state: tauri::State<'_, NativeState>) -> Result<()> {
+    let _guard = state.lifecycle.lock().await;
+    state.auth.current().await?;
+    state.socket.start(state.auth.clone(), state.events.clone()).await;
+    Ok(())
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

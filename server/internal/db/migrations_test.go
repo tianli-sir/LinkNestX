@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"path/filepath"
 	"testing"
 
@@ -73,7 +74,11 @@ func TestMigrationHistoryAndExistingDatabaseUpgrade(t *testing.T) {
 		}
 	}
 	var count int
-	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 9 {
+	packaged, err := fs.Glob(migrations.Files, "*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != len(packaged) {
 		t.Fatalf("migration history=%d err=%v", count, err)
 	}
 	if err := conn.QueryRow("SELECT count(*) FROM messages").Scan(&count); err != nil {
@@ -214,9 +219,6 @@ func TestProfilesUpgradeNumbersAvoidLegacyNumericNames(t *testing.T) {
 	if _, e = conn.Exec(`INSERT INTO users(id,username,password_hash,created_at,updated_at) VALUES('collision',?,'h','x','x')`, number); e == nil {
 		t.Fatal("numeric username stole an allocated login")
 	}
-	if _, e = conn.Exec(`UPDATE profiles SET account_number='123456789' WHERE user_id='alice'`); e == nil {
-		t.Fatal("number mutable")
-	}
 	if e = ApplyMigrations(context.Background(), conn); e != nil {
 		t.Fatal(e)
 	}
@@ -224,6 +226,16 @@ func TestProfilesUpgradeNumbersAvoidLegacyNumericNames(t *testing.T) {
 	conn.QueryRow(`SELECT account_number FROM profiles WHERE user_id='alice'`).Scan(&after)
 	if after != number {
 		t.Fatal("number changed")
+	}
+	// Authorized application transactions may now edit numbers; schema guards
+	// still reject malformed numbers and collisions with legacy logins.
+	for _, invalid := range []string{"012345", "12345", "12345678901", "12345x", "10000000"} {
+		if _, e = conn.Exec("UPDATE profiles SET account_number=? WHERE user_id='alice'", invalid); e == nil {
+			t.Fatalf("invalid account number accepted: %s", invalid)
+		}
+	}
+	if _, e = conn.Exec("UPDATE profiles SET account_number='123456789' WHERE user_id='alice'"); e != nil {
+		t.Fatalf("valid account-number update rejected: %v", e)
 	}
 }
 

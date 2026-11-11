@@ -226,7 +226,16 @@ func TestReceiptCountsFollowCurrentEntitlementAndRetention(t *testing.T) {
 		expectCode(t, w, 200)
 		var p chat.MessagePage
 		json.Unmarshal(w.Body.Bytes(), &p)
-		if p.Messages[0].ReadCount != want {
+		found := false
+		for _, entry := range p.Messages {
+			if entry.ID == m.ID {
+				found = true
+				if entry.ReadCount != want {
+					t.Fatal(w.Body)
+				}
+			}
+		}
+		if !found {
 			t.Fatal(w.Body)
 		}
 	}

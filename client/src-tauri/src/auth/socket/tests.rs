@@ -30,6 +30,7 @@ async fn stop_cancels_an_actually_backpressured_websocket_write() {
     );
     let bridge = SocketBridge {
         run: Mutex::new(Some((token, task, tx))),
+        ..Default::default()
     };
     tokio::time::timeout(Duration::from_millis(300), bridge.stop())
         .await
@@ -57,6 +58,7 @@ async fn stop_aborts_a_worker_that_does_not_cooperate() {
     tokio::task::yield_now().await;
     let bridge = SocketBridge {
         run: Mutex::new(Some((token, task, tx))),
+        ..Default::default()
     };
     tokio::time::timeout(Duration::from_secs(2), bridge.stop())
         .await
@@ -64,4 +66,14 @@ async fn stop_aborts_a_worker_that_does_not_cooperate() {
     dropped_rx
         .await
         .expect("worker resources should be dropped");
+}
+
+#[tokio::test]
+async fn socket_status_snapshot_survives_missed_events_and_stop_resets_it() {
+    let bridge = SocketBridge::default();
+    assert_eq!(bridge.status()["status"], "disconnected");
+    bridge.status.store(2, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(bridge.status()["status"], "connected");
+    bridge.stop().await;
+    assert_eq!(bridge.status()["status"], "disconnected");
 }

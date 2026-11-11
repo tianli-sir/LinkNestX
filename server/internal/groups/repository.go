@@ -29,40 +29,47 @@ func isAdmin(ctx context.Context, tx *sql.Tx, actorID string) (bool, error) {
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.name='admin'`, actorID).Scan(&count)
 	return count > 0, err
 }
-func (r *Repository) create(ctx context.Context, actorID, ownerID string, g Group) error {
+func (r *Repository) create(ctx context.Context, actorID, ownerID string, g Group) (string, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 	if err := activeActor(ctx, tx, actorID); err != nil {
-		return err
+		return "", err
 	}
 	admin, err := isAdmin(ctx, tx, actorID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !admin {
-		return auth.ErrAdminRequired
+		return "", auth.ErrAdminRequired
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id=? AND disabled=0`, ownerID).Scan(&count); err != nil {
-		return err
+		return "", err
 	}
 	if count == 0 {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 	at := g.CreatedAt.Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO groups(id,name,created_by,created_at) VALUES(?,?,?,?)`, g.ID, g.Name, g.CreatedBy, at); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES(?,?,'owner',?)`, g.ID, ownerID, at); err != nil {
-		return err
+		return "", err
 	}
 	if err := auth.RecordAudit(ctx, tx, actorID, "group.created", g.ID, g.CreatedAt); err != nil {
-		return err
+		return "", err
 	}
-	return tx.Commit()
+	messageID, err := appendSystemMessage(ctx, tx, actorID, g.ID, ownerID, "group.created", g.CreatedAt)
+	if err != nil {
+		return "", err
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+	return messageID, nil
 }
 func (r *Repository) list(ctx context.Context, actorID string) ([]Group, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT g.id,g.name,g.created_by,g.created_at,EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=?) FROM groups g WHERE NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=g.id) AND (EXISTS(SELECT 1 FROM group_members m WHERE m.group_id=g.id AND m.user_id=?) OR EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.name='admin')) ORDER BY g.created_at,g.id`, actorID, actorID, actorID)
@@ -106,73 +113,89 @@ func (r *Repository) members(ctx context.Context, groupID string) ([]Member, err
 	}
 	return result, rows.Err()
 }
-func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID, role string, remove bool) error {
+func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID, role string, remove bool) (string, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 	if err := activeActor(ctx, tx, actorID); err != nil {
-		return err
+		return "", err
 	}
 	if direct, e := IsDirect(ctx, tx, groupID); e != nil {
-		return e
+		return "", e
 	} else if direct {
-		return ErrForbidden
+		return "", ErrForbidden
 	}
 	admin, err := isAdmin(ctx, tx, actorID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var owners int
 	if !admin {
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM group_members WHERE group_id=? AND user_id=? AND role='owner'`, groupID, actorID).Scan(&owners); err != nil {
-			return err
+			return "", err
 		}
 		if owners == 0 {
-			return ErrForbidden
+			return "", ErrForbidden
 		}
 	}
 	var exists int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM groups WHERE id=?`, groupID).Scan(&exists); err != nil {
-		return err
+		return "", err
 	}
 	if exists == 0 {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 	var existingRole string
 	err = tx.QueryRowContext(ctx, `SELECT role FROM group_members WHERE group_id=? AND user_id=?`, groupID, userID).Scan(&existingRole)
 	if err != nil && err != sql.ErrNoRows {
-		return err
+		return "", err
+	}
+	if (remove && existingRole == "") || (!remove && existingRole == role) {
+		return "", nil
 	}
 	if existingRole == "owner" && (remove || role != "owner") {
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM group_members WHERE group_id=? AND role='owner'`, groupID).Scan(&owners); err != nil {
-			return err
+			return "", err
 		}
 		if owners <= 1 {
-			return ErrLastOwner
+			return "", ErrLastOwner
 		}
 	}
 	if remove {
 		_, err = tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id=? AND user_id=?`, groupID, userID)
 	} else {
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id=? AND disabled=0`, userID).Scan(&exists); err != nil {
-			return err
+			return "", err
 		}
 		if exists == 0 {
-			return ErrNotFound
+			return "", ErrNotFound
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES(?,?,?,?) ON CONFLICT(group_id,user_id) DO UPDATE SET role=excluded.role`, groupID, userID, role, time.Now().UTC().Format(time.RFC3339Nano))
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	action := "group.member_updated"
 	if remove {
 		action = "group.member_removed"
 	}
 	if err := auth.RecordAudit(ctx, tx, actorID, action, groupID+"/"+userID, time.Now()); err != nil {
-		return err
+		return "", err
 	}
-	return tx.Commit()
+	event := "group.member_added"
+	if remove {
+		event = "group.member_removed"
+	} else if existingRole != "" {
+		event = "group.owner_changed"
+	}
+	messageID, err := appendSystemMessage(ctx, tx, actorID, groupID, userID, event, time.Now())
+	if err != nil {
+		return "", err
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+	return messageID, nil
 }

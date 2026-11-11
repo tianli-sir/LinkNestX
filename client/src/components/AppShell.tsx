@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ThemeControl } from "../runtime/ThemeProvider";
 import { Icon, type IconName } from "./Icon";
+import { AccountNumber } from "./AccountNumber";
 import "../styles/desktop.css";
 
 export type NavigationKey = "groups" | "documents" | "contacts" | "pool" | "transfers" | "admin";
-export interface ShellUser { username: string; roles: string[] }
+export interface ShellUser { username: string; roles: string[]; accountNumber?: string }
 export interface ConnectionState {
   status: "connected" | "connecting" | "disconnected" | "error";
   label?: string;
@@ -79,6 +80,7 @@ export function AppShell({ children, user, selected, onNavigate, connection, act
         </button>
         {accountOpen && <div id={`${id}-account-options`} className="ln-account-options" aria-label="账户选项">
           <p>{user.username}<span>{canManage ? "管理员" : "员工"}</span></p>
+          <AccountNumber number={user.accountNumber} compact/>
           {onSettings && <button type="button" onClick={() => accountAction(onSettings)}><Icon name="settings" size={18} />设置</button>}
           {onLogout && <button type="button" className="ln-account-logout" onClick={() => accountAction(onLogout)}><Icon name="logout" size={18} />退出登录</button>}
           {!onSettings && !onLogout && <span className="ln-account-note">账户操作由工作区提供</span>}

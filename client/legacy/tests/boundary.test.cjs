@@ -4,7 +4,7 @@ const path = require('node:path');
 const { validateRequest, safeAsset, mayOpenExternal, rendererSession } = require('../shell/boundary.cjs');
 
 test('renderer cannot invoke privileged path or lifecycle pipe operations', () => {
-  for (const command of ['import_files','authorize_destination','selection_scope','shutdown','import_clipboard_image','import_clipboard_files','read_file']) {
+  for (const command of ['import_files','authorize_destination','selection_scope','session_identity','shutdown','import_clipboard_image','import_clipboard_files','read_file']) {
     assert.throws(() => validateRequest(command, {}));
   }
   assert.throws(() => validateRequest('login',{username:'u',password:'p',serverUrl:'https://evil.test'}));

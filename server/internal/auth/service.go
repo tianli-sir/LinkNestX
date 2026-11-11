@@ -33,11 +33,12 @@ var (
 )
 
 type CreateUserInput struct {
-	Username string   `json:"username"`
-	Email    string   `json:"email"`
-	Password string   `json:"password"`
-	DeviceID string   `json:"deviceId,omitempty"`
-	Roles    []string `json:"roles,omitempty"`
+	AccountNumber string   `json:"accountNumber,omitempty"`
+	Username      string   `json:"username"`
+	Email         string   `json:"email"`
+	Password      string   `json:"password"`
+	DeviceID      string   `json:"deviceId,omitempty"`
+	Roles         []string `json:"roles,omitempty"`
 	// Deprecated: caller assertions never establish authorization or target roles.
 	ActorUserID string `json:"-"`
 	Admin       bool   `json:"-"`
@@ -60,12 +61,13 @@ type Session struct {
 }
 
 type AuthService struct {
-	repo       *Repository
-	signingKey []byte
-	refreshKey []byte
-	accessTTL  time.Duration
-	refreshTTL time.Duration
-	now        func() time.Time
+	repo           *Repository
+	signingKey     []byte
+	refreshKey     []byte
+	accessTTL      time.Duration
+	refreshTTL     time.Duration
+	now            func() time.Time
+	profileChanged func(context.Context, string)
 }
 
 func NewAuthService(source any, signingKey, refreshKey string) *AuthService {
@@ -160,6 +162,11 @@ func (s *AuthService) BootstrapAdmin(ctx context.Context, in CreateUserInput) (U
 }
 
 func validateCreateUser(in CreateUserInput) (CreateUserInput, error) {
+	if in.AccountNumber != "" {
+		if err := validateAccountNumber(in.AccountNumber); err != nil {
+			return in, err
+		}
+	}
 	in.Username = strings.TrimSpace(in.Username)
 	in.Email = strings.TrimSpace(in.Email)
 	if in.Username == "" || in.Password == "" {

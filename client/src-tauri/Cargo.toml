@@ -1,6 +1,6 @@
 [package]
 name = "linknestx"
-version = "0.3.0"
+version = "0.3.1"
 description = "LinkNestX desktop collaboration client"
 authors = ["LinkNestX contributors"]
 edition = "2021"

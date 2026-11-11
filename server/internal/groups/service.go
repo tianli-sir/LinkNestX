@@ -36,9 +36,10 @@ type Member struct {
 	JoinedAt time.Time `json:"joinedAt"`
 }
 type GroupService struct {
-	repo     *Repository
-	auth     *auth.AuthService
-	observer func(string, string)
+	repo           *Repository
+	auth           *auth.AuthService
+	observer       func(string, string)
+	systemObserver func(context.Context, string)
 }
 
 func NewGroupService(conn *sql.DB, a *auth.AuthService) *GroupService {
@@ -56,7 +57,10 @@ func (s *GroupService) Create(ctx context.Context, actorID string, in CreateInpu
 		in.OwnerID = actorID
 	}
 	g := Group{IsMember: in.OwnerID == actorID, ID: uuid.NewString(), Name: in.Name, CreatedBy: actorID, CreatedAt: time.Now().UTC()}
-	err := s.repo.create(ctx, actorID, in.OwnerID, g)
+	messageID, err := s.repo.create(ctx, actorID, in.OwnerID, g)
+	if err == nil && s.systemObserver != nil {
+		s.systemObserver(ctx, messageID)
+	}
 	return g, err
 }
 func (s *GroupService) List(ctx context.Context, actorID string) ([]Group, error) {
@@ -107,8 +111,11 @@ func (s *GroupService) AddMember(ctx context.Context, actorID, groupID, userID, 
 	if role != "member" && role != "owner" {
 		return ErrInvalidInput
 	}
-	err := s.repo.changeMember(ctx, actorID, groupID, userID, role, false)
-	if err == nil && s.observer != nil {
+	messageID, err := s.repo.changeMember(ctx, actorID, groupID, userID, role, false)
+	if err == nil && messageID != "" && s.systemObserver != nil {
+		s.systemObserver(ctx, messageID)
+	}
+	if err == nil && messageID != "" && s.observer != nil {
 		s.observer(groupID, userID)
 	}
 	return err
@@ -117,11 +124,18 @@ func (s *GroupService) RemoveMember(ctx context.Context, actorID, groupID, userI
 	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
 		return err
 	}
-	err := s.repo.changeMember(ctx, actorID, groupID, userID, "", true)
-	if err == nil && s.observer != nil {
+	messageID, err := s.repo.changeMember(ctx, actorID, groupID, userID, "", true)
+	if err == nil && messageID != "" && s.systemObserver != nil {
+		s.systemObserver(ctx, messageID)
+	}
+	if err == nil && messageID != "" && s.observer != nil {
 		s.observer(groupID, userID)
 	}
 	return err
 }
 
 func (s *GroupService) SetMemberObserver(observer func(string, string)) { s.observer = observer }
+
+func (s *GroupService) SetSystemMessageObserver(observer func(context.Context, string)) {
+	s.systemObserver = observer
+}

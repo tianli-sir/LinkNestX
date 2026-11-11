@@ -10,6 +10,7 @@ func (h *AuthHandlers) registerAccounts(mux *http.ServeMux) {
 		"POST /api/v1/auth/password":                    h.ChangePassword,
 		"GET /api/v1/users":                             h.Directory,
 		"GET /api/v1/admin/users":                       h.AdminUsers,
+		"PATCH /api/v1/admin/users/{id}/account-number": h.UpdateAccountNumber,
 		"POST /api/v1/admin/users/{id}/disable":         h.DisableUser,
 		"POST /api/v1/admin/users/{id}/password":        h.ResetPassword,
 		"POST /api/v1/admin/users/{id}/revoke-sessions": h.RevokeUserSessions,
@@ -21,6 +22,21 @@ func (h *AuthHandlers) registerAccounts(mux *http.ServeMux) {
 	for path, handler := range routes {
 		mux.Handle(path, RequireAuth(h.Service, handler))
 	}
+}
+func (h *AuthHandlers) UpdateAccountNumber(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AccountNumber string `json:"accountNumber"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		authError(w, err)
+		return
+	}
+	user, err := h.Service.UpdateAccountNumber(r.Context(), r.PathValue("id"), in.AccountNumber)
+	if err != nil {
+		authError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
 }
 func (h *AuthHandlers) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	var in auth.ChangePasswordInput

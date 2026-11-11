@@ -256,6 +256,7 @@ func TestAdminOperationsRejectStaleOrUninitializedPrincipals(t *testing.T) {
 				s.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
 			}
 			checks := []func() error{
+				func() error { _, err := s.UpdateAccountNumber(ctx, target.User.ID, "987654"); return err },
 				func() error { return s.SetUserDisabled(ctx, target.User.ID, true) },
 				func() error { return s.ResetUserPassword(ctx, target.User.ID, "reset-password") },
 				func() error { return s.RevokeUserSessions(ctx, target.User.ID) },

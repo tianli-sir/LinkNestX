@@ -17,13 +17,13 @@ type scanner interface{ Scan(...any) error }
 
 // file_versions.status retains the lifecycle cause when cleanup also marks the
 // logical file unavailable; automatic expiry must not become explicit deletion.
-const messageColumns = `id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN CASE WHEN f.visibility='pool' AND f.listed=0 THEN 'unlisted' ELSE 'available' END WHEN v.status='expired' THEN 'expired' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END),(SELECT name FROM file_versions WHERE id=messages.file_version_id AND messages.expired_at IS NULL),(SELECT size FROM file_versions WHERE id=messages.file_version_id AND messages.expired_at IS NULL)`
+const messageColumns = `kind,system_type,id,sequence,group_id,sender_id,client_message_id,body,created_at,expired_at,file_id,file_version_id,(CASE WHEN file_version_id IS NULL THEN NULL WHEN expired_at IS NOT NULL THEN 'expired' ELSE COALESCE((SELECT CASE WHEN v.status='published' AND (v.expires_at IS NULL OR julianday(v.expires_at)>julianday('now')) AND f.deleted_at IS NULL THEN CASE WHEN f.visibility='pool' AND f.listed=0 THEN 'unlisted' ELSE 'available' END WHEN v.status='expired' THEN 'expired' WHEN v.status='deleted' OR f.deleted_at IS NOT NULL THEN 'deleted' ELSE 'expired' END FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.id=messages.file_version_id),'expired') END),(SELECT name FROM file_versions WHERE id=messages.file_version_id AND messages.expired_at IS NULL),(SELECT size FROM file_versions WHERE id=messages.file_version_id AND messages.expired_at IS NULL)`
 
 func scanMessage(row scanner) (Message, error) {
 	var m Message
 	var created string
 	var expired sql.NullString
-	if err := row.Scan(&m.ID, &m.Sequence, &m.GroupID, &m.SenderID, &m.ClientMessageID, &m.Body, &created, &expired, &m.FileID, &m.FileVersionID, &m.AttachmentStatus, &m.AttachmentName, &m.AttachmentSize); err != nil {
+	if err := row.Scan(&m.Kind, &m.SystemType, &m.ID, &m.Sequence, &m.GroupID, &m.SenderID, &m.ClientMessageID, &m.Body, &created, &expired, &m.FileID, &m.FileVersionID, &m.AttachmentStatus, &m.AttachmentName, &m.AttachmentSize); err != nil {
 		return m, err
 	}
 	var err error
@@ -70,7 +70,7 @@ func (r *Repository) append(ctx context.Context, m Message) (Message, bool, erro
 	}
 	existing, err := scanMessage(tx.QueryRowContext(ctx, `SELECT `+messageColumns+` FROM messages WHERE sender_id=? AND client_message_id=?`, m.SenderID, m.ClientMessageID))
 	if err == nil {
-		if existing.GroupID != m.GroupID || existing.FileVersionID != nil || (existing.Body != nil && *existing.Body != *m.Body) {
+		if existing.Kind == "system" || existing.GroupID != m.GroupID || existing.FileVersionID != nil || (existing.Body != nil && *existing.Body != *m.Body) {
 			return Message{}, false, ErrConflict
 		}
 		return existing, false, nil

@@ -32,6 +32,7 @@ interface DesktopContextValue {
   background:BackgroundStatus;
   desktop: DesktopAdapter;
   connection: ConnectionState;
+  reconnect: () => Promise<void>;
   subscribe: (event: string, callback: (payload: any) => void) => () => void;
 }
 const Context = createContext<DesktopContextValue | null>(null);
@@ -59,15 +60,22 @@ export function DesktopProvider({ children, adapter: suppliedAdapter }: {
     let stopped = false;
     const removers: Array<() => void> = [];
     let backgroundEvents=0;
+    let connectionEvents=0;
+    setConnection({status:"connecting"});
+    const registrations:Promise<void>[]=[];
     for (const name of ["server.event", "connection.changed", "transfer.updated","service.error","sharing.changed","sharing.revoked","sharing.activity","peer.sent","service.status", "attachments.prepared", "update.status", "window.foreground"]) {
-      adapter.listen(name, payload => {
+      registrations.push(adapter.listen(name, payload => {
         if (stopped)
           return;
         if (name === "window.foreground") setForeground(payload===true);
-        if (name === "connection.changed" && ["connected", "connecting", "disconnected", "error"].includes(payload?.status))
+        if (name === "connection.changed" && ["connected", "connecting", "disconnected", "error"].includes(payload?.status)) {
+          connectionEvents++;
           setConnection({ status: payload.status });
-        if (name === "server.event" && payload?.type === "session.ready" && !payload.localResync)
+        }
+        if (name === "server.event" && payload?.type === "session.ready" && !payload.localResync) {
+          connectionEvents++;
           setConnection({ status: "connected" });
+        }
         if(["service.status","service.error","sharing.changed","sharing.activity"].includes(name))backgroundEvents++;
         if(name==="service.status"&&payload) setBackground(payload);
         if(name==="service.error")setBackground(old=>({...old,error:apiErrorMessage(payload)}));
@@ -81,17 +89,28 @@ export function DesktopProvider({ children, adapter: suppliedAdapter }: {
           removers.push(remove);
       }).catch(error => {
         if(name === "window.foreground"){if(!stopped)setForeground(false);return;}
-        if (!stopped)
+        if (!stopped) {
+          connectionEvents++;
           setConnection({ status: "error", label: apiErrorMessage(error) });
-      });
+        }
+      }));
     }
+    void Promise.all(registrations).then(async()=>{
+      const revision=connectionEvents;
+      try {
+        const snapshot=await adapter.invoke<ConnectionState>("get_connection_status");
+        if(!stopped&&revision===connectionEvents&&["connected","connecting","disconnected","error"].includes(snapshot?.status)) setConnection({status:snapshot.status});
+      } catch { /* Live events remain authoritative for an older host. */ }
+    });
     adapter.invoke<BackgroundStatus>("get_background_status").then(status=>{if(!stopped&&status&&backgroundEvents===0)setBackground(status)}).catch(()=>{});
     return () => {
       stopped = true;
       removers.forEach(remove => remove());
     };
   }, [adapter]);
-  const value = useMemo(() => ({ desktop: adapter, connection, subscribe,background, foreground, capabilities: adapter.kind === "browser" ? browserCapabilities : adapter.kind === "legacy" ? {...nativeCapabilities,updates:false} : nativeCapabilities }), [adapter, connection, subscribe,background,foreground]);
+  useEffect(()=>{if(connection.status!=="connecting")return;const timeout=setTimeout(()=>setConnection(previous=>previous.status==="connecting"?{status:"disconnected",label:"连接超时，请重试"}:previous),20000);return()=>clearTimeout(timeout)},[connection.status]);
+  const reconnect=useCallback(async()=>{setConnection({status:"connecting"});try{await adapter.invoke("reconnect_connection")}catch(error){setConnection({status:"error",label:apiErrorMessage(error)});throw error}},[adapter]);
+  const value = useMemo(() => ({ desktop: adapter, connection, reconnect, subscribe,background, foreground, capabilities: adapter.kind === "browser" ? browserCapabilities : adapter.kind === "legacy" ? {...nativeCapabilities,updates:false} : nativeCapabilities }), [adapter, connection, reconnect, subscribe,background,foreground]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 export function useDesktop() {

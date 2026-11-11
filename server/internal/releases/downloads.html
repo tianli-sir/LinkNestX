@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="下载 LinkNestX 桌面客户端。按 Windows 或 macOS 系统选择安装包，接续团队聊天、文件协作和后台传输。">
+  <meta name="theme-color" content="#101e2b">
+  <title>客户端下载 · LinkNestX</title>
+  <style>
+    :root{color-scheme:light;--ink:#152c3b;--muted:#536771;--paper:#f7f9f8;--white:#fff;--line:#dce5e2;--night:#101e2b;--mint:#b4f3d5;--green:#17644e;--soft:#edf4ef;--wide:1200px;--radius:24px}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:24px}
+    body{margin:0;color:var(--ink);background:var(--paper);font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:inherit;text-decoration:none}
+    a,summary{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+    a:focus-visible,summary:focus-visible{outline:3px solid #168a65;outline-offset:5px}
+    .dark a:focus-visible{outline-color:var(--mint)}
+    h1,h2,h3,h4,p{margin:0}
+    h1,h2,h3,h4{line-height:1.3;text-wrap:balance}
+    h1,h2{letter-spacing:-.045em}
+    svg{display:block;flex:none}
+    .icon{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+    .symbols{position:absolute;width:0;height:0;overflow:hidden}
+    .wrap{width:min(var(--wide),calc(100% - 80px));margin-inline:auto}
+    .dark{color:var(--white);background:var(--night)}
+    .skip{position:absolute;z-index:10;top:8px;left:16px;padding:10px 18px;color:var(--ink);background:var(--mint);border-radius:8px;transform:translateY(-150%)}
+    .skip:focus{transform:translateY(0)}
+    .eyebrow{display:flex;align-items:center;gap:10px;color:var(--green);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+    .eyebrow:before{content:"";width:22px;height:1px;background:currentColor}
+    .dark .eyebrow{color:var(--mint)}
+    .brand{display:inline-flex;align-items:center;gap:10px;font-size:23px;font-weight:740;letter-spacing:-.055em;white-space:nowrap}
+    .brand svg{width:32px;height:36px}
+    .brand-x{color:var(--mint)}
+    .header{min-height:100px;display:flex;align-items:center;justify-content:space-between;gap:32px;border-bottom:1px solid #ffffff1c}
+    .header nav{display:flex;align-items:center;gap:32px}
+    .header nav a{display:inline-flex;align-items:center;min-height:44px;color:#c6d3da;font-size:14px}
+    .header nav a:hover,.header nav [aria-current]{color:var(--mint)}
+    .header .nav-cta{padding:0 17px;border:1px solid #607282;border-radius:8px;color:white;gap:10px}
+    .header .nav-cta .icon{width:16px;height:16px}
+    .hero{position:relative;overflow:hidden;background-image:radial-gradient(ellipse at 85% 18%,#25494366,transparent 55%)}
+    .hero:before{content:"";position:absolute;pointer-events:none;inset:0;opacity:.3;background-image:linear-gradient(#b4f3d50b 1px,transparent 1px),linear-gradient(90deg,#b4f3d50b 1px,transparent 1px);background-size:80px 80px;mask-image:linear-gradient(transparent,black 35%,transparent)}
+    .hero>.wrap{position:relative}
+    .hero-content{display:grid;grid-template-columns:1.1fr 1fr;gap:80px;padding:72px 0 64px;align-items:center}
+    .hero h1{font-size:clamp(42px,4.6vw,64px);line-height:1.2;font-weight:650;margin:24px 0 22px}
+    .hero h1 em{color:var(--mint);font-style:normal}
+    .hero-copy>p:last-child{max-width:460px;font-size:16px;color:#bdcdd6;line-height:1.95}
+    .desktop-figure{display:flex;align-items:center;justify-content:center;gap:28px;padding:30px 0;position:relative}
+    .desktop-orbit{position:relative;width:168px;height:168px;flex:none;display:grid;place-items:center;border:1px solid #49655e;border-radius:50%;background:#19352f55;box-shadow:0 0 0 22px #b4f3d504,0 0 0 23px #b4f3d511}
+    .desktop-orbit:before{content:"";position:absolute;width:10px;height:10px;background:var(--mint);border:3px solid var(--night);border-radius:50%;left:11px;top:18px}
+    .desktop-orbit>.icon{width:72px;height:72px;color:var(--mint);stroke-width:1.15}
+    .download-stamp{position:absolute;right:-2px;bottom:5px;width:42px;height:42px;background:var(--mint);color:var(--green);border:5px solid var(--night);border-radius:14px;display:grid;place-items:center}
+    .download-stamp .icon{width:21px;height:21px}
+    .desktop-caption{min-width:0;max-width:220px}
+    .desktop-caption strong{font-size:18px;font-weight:600}
+    .desktop-caption p{color:#a9bec9;font-size:13px;line-height:1.85;margin-top:10px}
+    .desktop-caption span{display:inline-block;color:var(--mint);font-size:11px;letter-spacing:.1em;margin-top:20px}
+    .hero-bottom{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:23px 0 26px;border-top:1px solid #ffffff1c;color:#bdcdd6;font-size:12px}
+    .hero-benefits{display:flex;gap:26px;flex-wrap:wrap}
+    .hero-benefits span{display:flex;align-items:center;gap:8px}
+    .hero-benefits .icon{width:16px;height:16px;color:var(--mint)}
+    .hero-bottom>a{display:inline-flex;align-items:center;gap:8px;min-height:44px;color:var(--mint)}
+    .hero-bottom>a .icon{width:16px;height:16px}
+    .section{padding-block:88px}
+    .section-heading{display:flex;justify-content:space-between;align-items:end;gap:32px;margin-bottom:32px}
+    .section-heading h2{font-size:36px;font-weight:650;margin-top:14px}
+    .section-heading>p{color:var(--muted);font-size:14px;max-width:350px;line-height:1.9}
+    .platform-nav{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:32px}
+    .platform-nav a{display:flex;align-items:center;gap:10px;min-height:46px;padding:9px 17px;border:1px solid #b7c9c0;border-radius:9px;background:var(--white);font-size:13px;font-weight:600;transition:background .18s,border-color .18s}
+    .platform-nav a:hover{background:var(--soft);border-color:var(--green)}
+    .platform-nav .icon{width:17px;height:17px;color:var(--green)}
+    .catalog-notice{padding:18px 24px;margin-bottom:24px;border:1px solid #c3d7cc;border-radius:12px;background:var(--soft);font-size:14px;color:#355c4b}
+    .platform{display:grid;grid-template-columns:280px minmax(0,1fr);gap:40px;padding:36px;margin-top:24px;border:1px solid var(--line);border-radius:var(--radius);background:var(--white);scroll-margin-top:24px}
+    .platform:first-of-type{border-color:#a8c7b6;box-shadow:0 10px 36px #18372605}
+    .platform-heading{min-width:0}
+    .platform-icon{width:48px;height:48px;display:grid;place-items:center;border:1px solid #d6e4db;border-radius:14px;background:var(--soft);color:var(--green);margin-bottom:24px}
+    .platform-icon .icon{width:25px;height:25px}
+    .platform-heading .edition{color:var(--green);font-size:12px;margin-bottom:10px;letter-spacing:.04em}
+    .platform-heading h3{font-size:27px;font-weight:650;letter-spacing:-.03em;margin-bottom:14px}
+    .platform-heading>p{font-size:14px;color:var(--muted);line-height:1.9}
+    .runtime{display:flex;align-items:start;gap:8px;margin-top:22px;font-size:12px;color:#50695c;line-height:1.85}
+    .runtime .icon{width:15px;height:15px;margin-top:4px}
+    .architecture-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start;min-width:0}
+    .architecture-list.single{grid-template-columns:minmax(0,1fr)}
+    .architecture{min-width:0;border:1px solid #dce6e0;border-radius:16px;padding:24px;background:#fbfcfb}
+    .architecture h4{font-size:17px;font-weight:650;letter-spacing:-.025em}
+    .architecture .architecture-description{font-size:12px;color:var(--muted);margin-top:5px;min-height:22px}
+    .release-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;color:var(--muted);font-size:12px;margin:20px 0 18px;font-variant-numeric:tabular-nums}
+    .version{padding:3px 8px;color:var(--green);background:#e3efe7;border-radius:5px;font-weight:650}
+    .button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:50px;padding:12px 20px;border:1px solid transparent;border-radius:9px;font-size:14px;font-weight:650;line-height:1.5;transition:background .18s,border-color .18s,box-shadow .18s}
+    .button .icon{width:18px;height:18px}
+    .button.solid{color:white;background:var(--green)}
+    .button.solid:hover{background:#114e3d}
+    .button.primary{background:var(--mint);color:#153d30}
+    .button.primary:hover{background:#cef9e4;box-shadow:0 0 0 4px #b4f3d514}
+    .download-button{width:100%}
+    .file-details{margin-top:12px;font-size:12px;color:var(--muted)}
+    summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;cursor:pointer;list-style:none}
+    summary::-webkit-details-marker{display:none}
+    summary:after{content:"+";font-size:20px;line-height:1;color:var(--green);font-weight:400;flex:none}
+    details[open]>summary:after{content:"−"}
+    .file-details[open]{padding-bottom:10px}
+    .file-details dl{margin:8px 0 0;padding:14px;background:#f0f5f1;border:1px solid var(--line);border-radius:8px}
+    .file-details dt{font-weight:600;color:#365b49;margin-top:10px}
+    .file-details dt:first-child{margin-top:0}
+    .file-details dd{margin:3px 0 0;overflow-wrap:anywhere}
+    .file-details code{font:11px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;color:#365b49}
+    .alternatives{margin-top:8px;border-top:1px solid var(--line);font-size:12px}
+    .alternatives>summary{padding-top:5px;color:var(--green);font-weight:600}.alternatives>summary span{margin-left:auto}
+    .alternative{border-top:1px solid var(--line);padding-top:16px;margin-top:10px}
+    .alternative-label{font-size:12px;color:var(--muted);margin-bottom:6px;font-variant-numeric:tabular-nums}
+    .alternative-link{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;color:var(--green);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:4px}
+    .alternative-link .icon{width:16px;height:16px}
+    .unavailable{margin-top:24px;padding:17px 18px;background:#eef2ef;border-radius:9px;color:#5b6c63;font-size:14px;line-height:1.6}
+    .unavailable strong{font-size:14px;font-weight:600;display:block;color:#475d50;margin-bottom:4px}
+    .unavailable span{font-size:12px}
+    .catalog-footnote{display:flex;align-items:start;gap:9px;color:var(--muted);font-size:12px;margin-top:24px;padding-inline:4px}
+    .catalog-footnote .icon{width:16px;height:16px;margin-top:3px;color:var(--green)}
+    .guide{padding:80px 0 88px;border-top:1px solid var(--line);background:#fff}
+    .guide .section-heading{margin-bottom:40px}
+    .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px;list-style:none;padding:0;margin:0}
+    .step-number{display:block;font-size:12px;letter-spacing:.1em;color:var(--green);border-top:1px solid #afc9ba;padding-top:22px;margin-bottom:20px}
+    .steps h3{font-size:21px;font-weight:600;margin-bottom:12px}
+    .steps p{font-size:14px;color:var(--muted);line-height:1.95}
+    .help{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:44px;padding:24px 28px;background:var(--soft);border:1px solid #d9e5dd;border-radius:14px}
+    .help h3{font-size:14px;font-weight:650;margin-bottom:8px}
+    .help p{font-size:12px;color:#50685a;line-height:1.9}
+    .web-section{padding:0 0 88px;background:#fff}
+    .web-panel{display:grid;grid-template-columns:1.2fr 1fr;gap:64px;align-items:center;padding:48px 52px;border-radius:var(--radius);background:var(--night)}
+    .web-panel h2{font-size:32px;font-weight:600;margin:14px 0 14px}
+    .web-panel p{font-size:14px;color:#bdcdd6;max-width:430px;line-height:1.9}
+    .web-entry{min-width:0;border-left:1px solid #ffffff25;padding-left:48px}
+    .web-entry .button{width:100%;max-width:300px}
+    .web-entry p{font-size:12px;margin-top:16px;color:#a9bec9;max-width:310px}
+    .footer{border-top:1px solid #ffffff17}
+    .footer .wrap{display:flex;align-items:center;gap:32px;padding-block:30px}
+    .footer .brand{font-size:20px}
+    .footer .brand svg{width:26px;height:29px}
+    .footer p{color:#a8bdc8;font-size:11px}
+    .footer nav{margin-left:auto;display:flex;gap:24px;align-items:center;font-size:12px;color:#c2d2db}
+    .footer nav a{display:flex;align-items:center;min-height:44px}
+    .footer nav a:hover{color:var(--mint)}
+    @media(max-width:1000px){
+      .wrap{width:calc(100% - 48px)}
+      .hero-content{gap:40px;padding-block:56px}
+      .desktop-figure{gap:20px}.desktop-orbit{width:130px;height:130px}.desktop-orbit>.icon{width:58px;height:58px}.desktop-caption strong{font-size:16px}.desktop-caption p{font-size:12px}
+      .platform{grid-template-columns:210px minmax(0,1fr);gap:24px;padding:28px}
+      .platform-heading h3{font-size:24px}.architecture-list{gap:14px}.architecture{padding:20px}.architecture h4{font-size:15px}
+      .steps{gap:28px}.web-panel{padding:40px;gap:36px}.web-entry{padding-left:32px}
+    }
+    @media(max-width:800px){
+      .hero-content{grid-template-columns:1fr 1fr;gap:32px}.hero h1{font-size:42px}.desktop-figure{flex-direction:column;text-align:center;gap:28px}.desktop-caption p{display:none}.desktop-caption span{margin-top:8px}
+      .hero-bottom{align-items:start}.hero-benefits{gap:12px 20px}.hero-bottom>a{flex:none}
+      .platform{grid-template-columns:1fr;gap:24px}.platform-heading{display:grid;grid-template-columns:48px 1fr;column-gap:18px}.platform-icon{grid-column:1;grid-row:1/4;margin:0}.platform-heading .edition,.platform-heading h3,.platform-heading>p,.runtime{grid-column:2}.platform-heading h3{margin-bottom:10px}.runtime{margin-top:14px}.platform-heading>p{max-width:560px}
+      .architecture h4{font-size:17px}.section-heading{align-items:start}.section-heading h2{font-size:32px}.section-heading>p{max-width:260px}
+      .web-panel{grid-template-columns:1fr;gap:28px}.web-entry{padding:24px 0 0;border-left:0;border-top:1px solid #ffffff25;display:flex;gap:28px;align-items:center}.web-entry .button{max-width:240px;flex:none}.web-entry p{margin-top:0}
+      .footer .wrap{flex-wrap:wrap;gap:10px 24px}.footer p{order:3;width:100%}.footer nav{margin-left:auto}
+    }
+    @media(max-width:580px){
+      .wrap{width:calc(100% - 40px)}
+      .header{min-height:86px;gap:16px;flex-wrap:wrap;justify-content:center;padding-block:20px 12px}.header .brand{margin-right:auto;font-size:22px}.header nav{gap:18px}.header nav a{font-size:12px}.header nav .home-link{display:none}.header .nav-cta{padding-inline:12px}
+      .hero-content{display:block;padding:44px 0 34px}.hero h1{font-size:42px;margin-block:20px}.hero-copy>p:last-child{font-size:14px;max-width:350px}.desktop-figure{display:none}
+      .hero-bottom{display:block;padding:19px 0 22px}.hero-benefits{gap:13px 20px;font-size:11px}.hero-bottom>a{margin-top:8px;font-size:12px}
+      .section{padding-block:54px}.section-heading{display:block;margin-bottom:25px}.section-heading h2{font-size:29px;margin-top:12px}.section-heading>p{margin-top:16px;max-width:340px;font-size:13px}.eyebrow{font-size:10px}
+      .platform-nav{gap:8px;margin-bottom:24px}.platform-nav a{padding:8px 11px;font-size:12px;gap:6px}.platform-nav .icon{width:15px;height:15px}
+      .catalog-notice{padding:16px 18px;font-size:13px}
+      .platform{padding:24px 20px;border-radius:18px;margin-top:18px;gap:22px}.platform-heading{grid-template-columns:42px 1fr;column-gap:14px}.platform-icon{width:42px;height:42px;border-radius:12px}.platform-icon .icon{width:23px;height:23px}.platform-heading h3{font-size:24px}.platform-heading .edition{font-size:11px;margin-bottom:7px}.platform-heading>p{grid-column:1/-1;margin-top:8px;font-size:13px}.runtime{grid-column:1/-1;font-size:12px}
+      .architecture-list{grid-template-columns:1fr;gap:14px}.architecture{padding:20px}.architecture h4{font-size:17px}.release-meta{margin-block:16px}.button{font-size:14px}.catalog-footnote{font-size:11px;margin-top:20px}
+      .guide{padding:54px 0}.guide .section-heading{margin-bottom:30px}.steps{grid-template-columns:1fr;gap:28px}.step-number{padding-top:18px;margin-bottom:12px}.steps h3{font-size:20px;margin-bottom:8px}.steps p{font-size:13px}.help{grid-template-columns:1fr;gap:20px;padding:22px;margin-top:32px}
+      .web-section{padding-bottom:54px}.web-panel{padding:30px 25px;gap:24px;border-radius:18px}.web-panel h2{font-size:27px}.web-panel p{font-size:13px}.web-entry{display:block;padding-top:24px}.web-entry .button{max-width:none}.web-entry p{margin-top:14px;font-size:12px}
+      .footer .wrap{gap:8px 20px;padding-block:22px}.footer .brand{font-size:19px}.footer nav{gap:18px;font-size:11px}.footer p{font-size:10px}
+    }
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳至主要内容</a>
+  <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="mark" viewBox="0 0 32 36"><path d="M5 8 16 2l11 6v13l-11 7L5 21Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m5 8 11 7 11-7M16 15v13M5 15l11 7 11-7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="33" r="2" fill="currentColor"/></symbol>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></symbol>
+    <symbol id="monitor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M9 21h6m-3-5v5"/></symbol>
+    <symbol id="windows-icon" viewBox="0 0 24 24"><path d="m3 5 7-1v7H3Zm10-1.5 8-1V11h-8ZM3 14h7v7l-7-1Zm10 0h8v8.5l-8-1Z"/></symbol>
+    <symbol id="laptop" viewBox="0 0 24 24"><path d="M5 16V5h14v11M3 16h18l1 4H2l1-4Zm6 1h6"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 4-5 8-8 9-3-1-8-5-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></symbol>
+  </svg>
+  <div class="hero dark">
+    <div class="wrap">
+      <header class="header">
+        <a class="brand" href="/" aria-label="LinkNestX 首页"><svg aria-hidden="true"><use href="#mark"/></svg><span>LinkNest<span class="brand-x">X</span></span></a>
+        <nav aria-label="主导航"><a class="home-link" href="/">产品首页</a><a href="/downloads" aria-current="page">客户端下载</a><a class="nav-cta" href="/app/">进入网页版<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a></nav>
+      </header>
+      <div class="hero-content">
+        <div class="hero-copy"><p class="eyebrow">DOWNLOAD LINKNESTX</p><h1>把协作，<br><em>带到你的桌面。</em></h1><p>消息、同事与文件，随时连接。<br>选择适合你设备的客户端，回到团队的工作节奏。</p></div>
+        <div class="desktop-figure" aria-hidden="true"><div class="desktop-orbit"><svg class="icon"><use href="#monitor"/></svg><div class="download-stamp"><svg class="icon"><use href="#download"/></svg></div></div><div class="desktop-caption"><strong>一个工作区，<br>连接每一台设备。</strong><p>Windows · macOS<br>让日常协作自然延续。</p><span>YOUR WORK, CONNECTED.</span></div></div>
+      </div>
+      <div class="hero-bottom"><div class="hero-benefits"><span><svg class="icon" aria-hidden="true"><use href="#check"/></svg>完整聊天与文件协作</span><span><svg class="icon" aria-hidden="true"><use href="#check"/></svg>断点恢复与后台传输</span><span><svg class="icon" aria-hidden="true"><use href="#check"/></svg>使用团队现有账号</span></div><a href="#installation">首次安装指引<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a></div>
+    </div>
+  </div>
+  <main id="main">
+    <section class="section wrap" aria-labelledby="download-title">
+      <div class="section-heading"><div><p class="eyebrow">01 / CHOOSE YOUR PLATFORM</p><h2 id="download-title">为这台设备，选好版本。</h2></div><p>根据操作系统与处理器选择。<br>这里仅展示当前已发布、通过完整性校验的文件。</p></div>
+      <nav class="platform-nav" aria-label="选择操作系统"><a href="#windows"><svg class="icon" aria-hidden="true"><use href="#windows-icon"/></svg>Windows 10 / 11</a><a href="#windows7">Windows 7 SP1</a><a href="#macos"><svg class="icon" aria-hidden="true"><use href="#laptop"/></svg>macOS</a></nav>
+      {{if not .Count}}<p class="catalog-notice">客户端安装包暂未提供。你可以先进入网页版，或联系团队管理员获取发布安排。</p>{{end}}
+      {{range .Platforms}}{{$platform := .}}
+      <article class="platform" id="{{.ID}}" aria-labelledby="{{.ID}}-title">
+        <div class="platform-heading"><div class="platform-icon"><svg class="icon" aria-hidden="true">{{if eq .ID "macos"}}<use href="#laptop"/>{{else}}<use href="#windows-icon"/>{{end}}</svg></div><p class="edition">{{.Edition}}</p><h3 id="{{.ID}}-title">{{.Title}}</h3><p>{{.Description}}</p><div class="runtime"><svg class="icon" aria-hidden="true"><use href="#info"/></svg><span>{{.Requirement}}</span></div></div>
+        <div class="architecture-list{{if eq .ID "windows"}} single{{end}}">
+          {{range .Architectures}}{{$arch := .}}
+          <section class="architecture" aria-labelledby="{{$platform.ID}}-{{.Arch}}-title">
+            <h4 id="{{$platform.ID}}-{{.Arch}}-title">{{.Label}}</h4><p class="architecture-description">{{.Description}}</p>
+            {{with .Primary}}
+              <div class="release-meta"><span class="version">v{{.Version}}</span><span>{{.Format}}</span><span>{{.SizeLabel}}</span></div>
+              <a class="button solid download-button" href="{{.URL}}" aria-label="{{.Action}}，{{$platform.Title}}，{{$arch.Label}}，版本 {{.Version}}"><svg class="icon" aria-hidden="true"><use href="#download"/></svg>{{.Action}}</a>
+              {{template "file-details" .}}
+            {{else}}
+              <div class="unavailable"><strong>此版本暂未提供</strong><span>请联系管理员，或先使用网页版。</span></div>
+            {{end}}
+            {{if .Alternatives}}<details class="alternatives"><summary>其他格式与历史版本 <span>({{len .Alternatives}})</span></summary>{{range .Alternatives}}<div class="alternative"><p class="alternative-label">v{{.Version}} · {{.Format}} · {{.SizeLabel}}</p><a class="alternative-link" href="{{.URL}}" aria-label="{{.Action}}，{{$platform.Title}}，{{$arch.Label}}，版本 {{.Version}}">{{.Action}}<svg class="icon" aria-hidden="true"><use href="#download"/></svg></a>{{template "file-details" .}}</div>{{end}}</details>{{end}}
+          </section>
+          {{end}}
+        </div>
+      </article>
+      {{end}}
+      <p class="catalog-footnote"><svg class="icon" aria-hidden="true"><use href="#shield"/></svg><span>每个文件都提供 SHA-256 校验值，可展开“文件信息与校验”查看。没有适合的版本？请联系团队管理员。</span></p>
+    </section>
+    <section class="guide" id="installation" aria-labelledby="installation-title"><div class="wrap">
+      <div class="section-heading"><div><p class="eyebrow">02 / MAKE YOURSELF AT HOME</p><h2 id="installation-title">三步，回到你的工作区。</h2></div><p>客户端已内置企业服务地址，<br>使用员工账号登录即可开始。</p></div>
+      <ol class="steps"><li><span class="step-number" aria-hidden="true">01 / DOWNLOAD</span><h3>选择设备版本</h3><p>Windows 在“设置 → 系统 → 关于”查看系统类型。Mac 在苹果菜单的“关于本机”中确认是 Apple 芯片还是 Intel 处理器。</p></li><li><span class="step-number" aria-hidden="true">02 / INSTALL</span><h3>完成客户端安装</h3><p>Windows 打开安装包，按提示完成安装；ZIP 便携版请先完整解压。Mac 打开 DMG，将应用放入当前用户的 Applications 文件夹。</p></li><li><span class="step-number" aria-hidden="true">03 / CONNECT</span><h3>登录团队工作区</h3><p>打开 LinkNestX，使用员工账号和密码登录。客户端已内置企业服务地址；没有账号或忘记密码，请联系团队管理员。</p></li></ol>
+      <div class="help"><div><h3>不确定该选哪一个？</h3><p>Windows 10 / 11 的日常安装优先选择 EXE；MSI 可用于需要该格式的安装流程。Windows 7 SP1 请对应系统的 32 位或 64 位，便携版无需安装。</p></div><div><h3>安装时遇到系统提示？</h3><p>请先确认文件来自当前团队的下载页，并核对 SHA-256。若系统仍阻止安装，将提示信息发送给管理员，确认适用的安装方式。</p></div></div>
+    </div></section>
+    <section class="web-section" aria-labelledby="web-title"><div class="wrap"><div class="web-panel dark"><div><p class="eyebrow">ALWAYS AN OPEN DOOR</p><h2 id="web-title">临时访问，打开浏览器就好。</h2><p>用同一账号接续聊天，查看团队消息与文件。<br>不必等待安装，也能先和同事连接。</p></div><div class="web-entry"><a class="button primary" href="/app/">进入网页版<svg class="icon" aria-hidden="true"><use href="#arrow"/></svg></a><p>网页版支持单个不超过 1 GB 的文件下载；文件上传与后台传输请使用桌面客户端。</p></div></div></div></section>
+  </main>
+  <footer class="footer dark"><div class="wrap"><a class="brand" href="/" aria-label="LinkNestX 首页"><svg aria-hidden="true"><use href="#mark"/></svg><span>LinkNest<span class="brand-x">X</span></span></a><p>团队沟通与文件协作 · 自主部署，自然连接。</p><nav aria-label="页脚导航"><a href="/">产品首页</a><a href="/app/">网页版</a></nav></div></footer>
+</body>
+</html>
+{{define "file-details"}}<details class="file-details"><summary>文件信息与校验</summary><dl><dt>文件名</dt><dd>{{.Name}}</dd><dt>文件大小</dt><dd>{{.SizeLabel}}（{{.Size}} 字节）</dd><dt>SHA-256</dt><dd><code>{{.SHA256}}</code></dd></dl></details>{{end}}

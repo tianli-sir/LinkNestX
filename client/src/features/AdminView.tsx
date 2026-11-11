@@ -26,7 +26,10 @@ function UsersPanel({ client, users, refresh }: {
   users: User[];
   refresh: () => void;
 }) {
+  const {updateUser} = useAuth();
   const [username, setUsername] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [nextAccountNumber, setNextAccountNumber] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [admin, setAdmin] = useState(false);
@@ -36,7 +39,7 @@ function UsersPanel({ client, users, refresh }: {
   const [notice, setNotice] = useState("");
   const [action, setAction] = useState<{
     user: User;
-    kind: "disable" | "password" | "revoke-sessions";
+    kind: "disable" | "password" | "revoke-sessions" | "account-number";
   } | null>(null);
   async function run(work: () => Promise<void>) {
     if (busy)
@@ -49,7 +52,9 @@ function UsersPanel({ client, users, refresh }: {
       refresh();
     }
     catch (error) {
-      setError(apiErrorMessage(error));
+      const message=apiErrorMessage(error);
+      setError(message==='account number is already in use'?'该数字账号已被使用，请更换后重试。':message);
+      window.dispatchEvent(new CustomEvent('linknestx:notice',{detail:{kind:'error',title:'账号操作失败'}}));
     }
     finally {
       setBusy(false);
@@ -58,12 +63,14 @@ function UsersPanel({ client, users, refresh }: {
   function create(event: FormEvent) {
     event.preventDefault();
     void run(async () => {
-      await client.request("POST", "/api/v1/users", { username: username.trim(), email: email.trim(), password, roles: admin ? ["admin"] : ["user"] });
+      await client.request("POST", "/api/v1/users", { username: username.trim(), email: email.trim(), password, ...(accountNumber ? {accountNumber} : {}), roles: admin ? ["admin"] : ["user"] });
       setUsername("");
       setEmail("");
+      setAccountNumber("");
       setPassword("");
       setAdmin(false);
       setNotice("账号已创建。请通过可信方式告知同事初始密码。");
+      window.dispatchEvent(new CustomEvent('linknestx:notice',{detail:{kind:'success',title:'账号已创建'}}));
     });
   }
   function execute(event: FormEvent) {
@@ -71,22 +78,29 @@ function UsersPanel({ client, users, refresh }: {
     if (!action)
       return;
     void run(async () => {
-      await client.request("POST", `/api/v1/admin/users/${segment(action.user.id)}/${action.kind}`, action.kind === "disable" ? { disabled: !action.user.disabled } : action.kind === "password" ? { password: resetPassword } : {});
+      if(action.kind === "account-number") {
+        const updated=await client.request<User>("PATCH", `/api/v1/admin/users/${segment(action.user.id)}/account-number`, {accountNumber:nextAccountNumber});
+        updateUser(updated);
+      } else {
+        await client.request("POST", `/api/v1/admin/users/${segment(action.user.id)}/${action.kind}`, action.kind === "disable" ? { disabled: !action.user.disabled } : action.kind === "password" ? { password: resetPassword } : {});
+      }
       setAction(null);
       setResetPassword("");
-      setNotice("账号操作已完成。");
+      setNotice(action.kind === "account-number" ? "数字账号已更新。" : "账号操作已完成。");
+      window.dispatchEvent(new CustomEvent('linknestx:notice',{detail:{kind:'success',title:action.kind === 'account-number' ? '数字账号已更新' : '账号操作已完成'}}));
     });
   }
-  return <><ErrorNotice error={error}/>{notice && <p className="ln-notice" role="status">{notice}</p>}<div className="ln-table-scroll"><table className="ln-table"><thead><tr><th>账号</th><th>角色 / 状态</th><th>操作</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td><strong>{user.username}</strong><small>{user.email || user.id}</small></td><td>{user.roles.includes("admin") ? "管理员" : "员工"} · {user.disabled ? "已停用" : "正常"}</td><td><div className="ln-actions">{([["disable", user.disabled ? "启用" : "停用"], ["password", "重置密码"], ["revoke-sessions", "强制下线"]] as const).map(([kind, label]) => <button className="ln-text-button" key={kind} disabled={busy} onClick={() => {
+  return <><ErrorNotice error={error}/>{notice && <p className="ln-notice" role="status">{notice}</p>}<div className="ln-table-scroll"><table className="ln-table"><thead><tr><th>账号</th><th>数字账号</th><th>角色 / 状态</th><th>操作</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td><strong>{user.username}</strong><small>{user.email}</small></td><td><span className="ln-admin-account-number">{user.accountNumber || "—"}</span></td><td>{user.roles.includes("admin") ? "管理员" : "员工"} · {user.disabled ? "已停用" : "正常"}</td><td><div className="ln-actions">{([["account-number", "修改数字账号"], ["disable", user.disabled ? "启用" : "停用"], ["password", "重置密码"], ["revoke-sessions", "强制下线"]] as const).map(([kind, label]) => <button className="ln-text-button" key={kind} disabled={busy} onClick={() => {
     setAction({ user, kind });
+    setNextAccountNumber(user.accountNumber ?? "");
     setResetPassword("");
     setError("");
   }}>{label}</button>)}</div></td></tr>)}</tbody></table></div>
-  {action && <form className="ln-confirm" onSubmit={execute}><h3>{action.kind === "password" ? "重置密码" : action.kind === "disable" ? action.user.disabled ? "启用账号" : "停用账号" : "强制下线"} · {action.user.username}</h3><p>{action.kind === "disable" && action.user.disabled ? "启用后，该员工可以重新登录。" : "现有会话将失效，员工需要重新登录。"}</p>{action.kind === "password" && <Field label="重置为新密码" id="reset-password"><input id="reset-password" type="password" autoComplete="new-password" required minLength={8} value={resetPassword} onChange={event => setResetPassword(event.target.value)}/></Field>}<div className="ln-actions"><button className="ln-button ln-button-danger" disabled={busy}>确认操作</button><button type="button" className="ln-button ln-button-secondary" disabled={busy} onClick={() => {
+  {action && <form className="ln-confirm" onSubmit={execute}><h3>{action.kind === "account-number" ? "修改数字账号" : action.kind === "password" ? "重置密码" : action.kind === "disable" ? action.user.disabled ? "启用账号" : "停用账号" : "强制下线"} · {action.user.username}</h3><p>{action.kind === "account-number" ? "数字账号用于登录和添加好友。更改后请告知本人，原有聊天与文件不受影响。" : action.kind === "disable" && action.user.disabled ? "启用后，该员工可以重新登录。" : "现有会话将失效，员工需要重新登录。"}</p>{action.kind === "account-number" && <Field label="新的数字账号" id="edit-account-number"><input id="edit-account-number" type="text" inputMode="numeric" autoComplete="off" pattern="[1-9][0-9]{5,9}" minLength={6} maxLength={10} required value={nextAccountNumber} onChange={event=>setNextAccountNumber(event.target.value)}/><p className="ln-field-hint">6–10 位数字，首位不能为 0。</p></Field>}{action.kind === "password" && <Field label="重置为新密码" id="reset-password"><input id="reset-password" type="password" autoComplete="new-password" required minLength={8} value={resetPassword} onChange={event => setResetPassword(event.target.value)}/></Field>}<div className="ln-actions"><button className={action.kind === "account-number" ? "ln-button ln-button-primary" : "ln-button ln-button-danger"} disabled={busy}>{action.kind === "account-number" ? "保存数字账号" : "确认操作"}</button><button type="button" className="ln-button ln-button-secondary" disabled={busy} onClick={() => {
     setAction(null);
     setResetPassword("");
   }}>取消</button></div></form>}
-  <form className="ln-inline-form" onSubmit={create}><h3>创建员工账号</h3><Field label="新用户名" id="new-username"><input id="new-username" required value={username} autoComplete="off" onChange={event => setUsername(event.target.value)}/></Field><Field label="邮箱（可选）" id="new-email"><input id="new-email" type="email" value={email} onChange={event => setEmail(event.target.value)}/></Field><Field label="初始密码" id="initial-password"><input id="initial-password" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)}/></Field><label className="ln-checkbox"><input type="checkbox" checked={admin} onChange={event => setAdmin(event.target.checked)}/>授予管理员权限</label><button className="ln-button ln-button-primary" disabled={busy || !username.trim() || !password}>创建账号</button></form>
+  <form className="ln-inline-form" onSubmit={create}><h3>创建员工账号</h3><Field label="新用户名" id="new-username"><input id="new-username" required value={username} autoComplete="off" onChange={event => setUsername(event.target.value)}/></Field><Field label="数字账号（可选）" id="new-account-number"><input id="new-account-number" type="text" inputMode="numeric" autoComplete="off" pattern="[1-9][0-9]{5,9}" minLength={6} maxLength={10} value={accountNumber} onChange={event=>setAccountNumber(event.target.value)}/><p className="ln-field-hint">留空会随机分配 6 位数字账号；指定时请输入 6–10 位数字，首位不能为 0。</p></Field><Field label="邮箱（可选）" id="new-email"><input id="new-email" type="email" value={email} onChange={event => setEmail(event.target.value)}/></Field><Field label="初始密码" id="initial-password"><input id="initial-password" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)}/></Field><label className="ln-checkbox"><input type="checkbox" checked={admin} onChange={event => setAdmin(event.target.checked)}/>授予管理员权限</label><button className="ln-button ln-button-primary" disabled={busy || !username.trim() || !password}>创建账号</button></form>
  </>;
 }
 function GroupForm({ client, users, onCreated }: {

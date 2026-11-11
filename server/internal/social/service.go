@@ -30,7 +30,9 @@ type Service struct {
 }
 
 func New(a *auth.AuthService, c *chat.ChatService, h *chat.Hub) *Service {
-	return &Service{a.Database(), a, c, h}
+	s := &Service{a.Database(), a, c, h}
+	a.SetProfileChangedHandler(s.profileChanged)
+	return s
 }
 func pair(a, b string) (string, string) {
 	if a > b {

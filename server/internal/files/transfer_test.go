@@ -343,7 +343,13 @@ func TestAdminOutsideGroupReplacesPoolVersion(t *testing.T) {
 		t.Fatal("administrator gained ordinary text chat")
 	}
 	page, e := f.s.chat.List(f.ownerCtx, f.owner.User.ID, f.group, "", 50)
-	if e != nil || len(page.Messages) != 2 || page.Messages[1].SenderID != f.admin.User.ID {
+	attachments := []chat.Message{}
+	for _, m := range page.Messages {
+		if m.FileVersionID != nil {
+			attachments = append(attachments, m)
+		}
+	}
+	if e != nil || len(attachments) != 2 || attachments[1].SenderID != f.admin.User.ID {
 		t.Fatalf("association %+v %v", page, e)
 	}
 }
@@ -433,7 +439,13 @@ func TestChatKeepsExpiredCauseAfterCleanup(t *testing.T) {
 	check := func(want string) {
 		t.Helper()
 		page, e := f.s.chat.List(f.ownerCtx, f.owner.User.ID, f.group, "", 50)
-		if e != nil || len(page.Messages) != 1 || page.Messages[0].AttachmentStatus == nil || *page.Messages[0].AttachmentStatus != want {
+		attachments := []chat.Message{}
+		for _, m := range page.Messages {
+			if m.FileVersionID != nil && *m.FileVersionID == u.VersionID {
+				attachments = append(attachments, m)
+			}
+		}
+		if e != nil || len(attachments) != 1 || attachments[0].AttachmentStatus == nil || *attachments[0].AttachmentStatus != want {
 			t.Fatalf("attachment %+v %v", page, e)
 		}
 	}

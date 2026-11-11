@@ -3,6 +3,9 @@ import { apiErrorMessage } from "../api/rest";
 import { useAuth } from "../auth";
 import { useDesktop } from "../runtime/DesktopProvider";
 import { ThemeControl } from "../runtime/ThemeProvider";
+import { useChatPreferences } from "../runtime/chatPreferences";
+import { AccountNumber } from "../components/AccountNumber";
+import { PasswordSettings } from "./PasswordSettings";
 import { UpdatePanel } from "./UpdatePanel";
 import { DevicesView } from "./DevicesView";
 import { ErrorNotice, Field, Loading, useResource } from "./shared";
@@ -16,8 +19,11 @@ export function SettingsView({ onClose }: {
 }) {
   const { session, client } = useAuth();
   const { desktop, capabilities } = useDesktop();
+  const { sendShortcut, setSendShortcut } = useChatPreferences();
   const resource = useResource("transfer-preferences", () => capabilities.nativeTransfers ? desktop.invoke<TransferPreferences>("get_transfer_preferences") : Promise.resolve(null));
-  return <section className="ln-feature ln-settings"><div className="ln-toolbar"><h2>设置</h2><button className="ln-button ln-button-secondary" onClick={onClose}>返回工作区</button></div><dl className="ln-account-details"><dt>当前账号</dt><dd>{session?.user.displayName ?? session?.user.username}</dd></dl><section className="ln-settings-appearance"><h3>外观</h3><p className="ln-muted">选择舒适的阅读方式，跟随系统会自动切换浅色与深色。</p><ThemeControl/></section><DevicesView client={client}/><UpdatePanel/><ErrorNotice error={resource.error} retry={resource.refresh}/>{resource.loading && <Loading />}{resource.data && <TransferPreferencesForm key={JSON.stringify(resource.data)} initial={resource.data}/>}</section>;
+  return <section className="ln-feature ln-settings"><div className="ln-toolbar"><h2>设置</h2><button className="ln-button ln-button-secondary" onClick={onClose}>返回工作区</button></div><dl className="ln-account-details"><dt>当前账号</dt><dd>{session?.user.displayName ?? session?.user.username}</dd></dl><AccountNumber number={session?.user.accountNumber}/><section className="ln-settings-appearance"><h3>外观</h3><p className="ln-muted">选择舒适的阅读方式，跟随系统会自动切换浅色与深色。</p><ThemeControl/></section>
+  <section className="ln-settings-shortcuts"><h3>聊天习惯</h3><Field label="发送消息快捷键" id="send-shortcut"><select id="send-shortcut" value={sendShortcut} onChange={event=>{const value=event.target.value;if(value==='enter'||value==='ctrlEnter'){setSendShortcut(value);window.dispatchEvent(new CustomEvent('linknestx:notice',{detail:{kind:'success',title:'发送快捷键已更新'}}))}}}><option value="enter">Enter 发送，Shift + Enter 换行</option><option value="ctrlEnter">Ctrl / ⌘ + Enter 发送，Enter 换行</option></select></Field></section>
+  <PasswordSettings/><DevicesView client={client}/><UpdatePanel/><ErrorNotice error={resource.error} retry={resource.refresh}/>{resource.loading && <Loading />}{resource.data && <TransferPreferencesForm key={JSON.stringify(resource.data)} initial={resource.data}/>}</section>;
 }
 function TransferPreferencesForm({ initial }: {
   initial: TransferPreferences;
