@@ -225,6 +225,78 @@ pub async fn pick_download_destination(
     Ok(path)
 }
 
+fn local_path_exists(path: &str) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+#[tauri::command]
+pub async fn open_downloaded_file(
+    state: tauri::State<'_, NativeState>,
+    task_id: String,
+) -> Result<()> {
+    crate::transfer::models::segment(&task_id)?;
+    let owner = state.auth.owner().await?;
+    let path = state.transfers.download_task_path(&owner, &task_id)?;
+    let probe = path.clone();
+    let exists = tokio::task::spawn_blocking(move || local_path_exists(&probe))
+        .await
+        .map_err(|_| TransferError::new("打开操作已取消"))?;
+    if !exists {
+        return Err(TransferError::new("文件已不在原位置"));
+    }
+    if state.auth.owner().await? != owner {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    crate::external::open_local_path(&path)
+}
+
+#[tauri::command]
+pub async fn reveal_downloaded_file(
+    state: tauri::State<'_, NativeState>,
+    task_id: String,
+) -> Result<()> {
+    crate::transfer::models::segment(&task_id)?;
+    let owner = state.auth.owner().await?;
+    let path = state.transfers.download_task_path(&owner, &task_id)?;
+    let probe = path.clone();
+    let exists = tokio::task::spawn_blocking(move || local_path_exists(&probe))
+        .await
+        .map_err(|_| TransferError::new("打开操作已取消"))?;
+    if !exists {
+        return Err(TransferError::new("文件已不在原位置"));
+    }
+    if state.auth.owner().await? != owner {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    crate::external::reveal_local_path(&path)
+}
+
+#[tauri::command]
+pub async fn check_downloaded_files(
+    state: tauri::State<'_, NativeState>,
+    task_ids: Vec<String>,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    if task_ids.len() > 200 {
+        return Err(TransferError::new("检查任务过多"));
+    }
+    let owner = state.auth.owner().await?;
+    let mut result = serde_json::Map::new();
+    for task_id in task_ids {
+        if crate::transfer::models::segment(&task_id).is_err() {
+            result.insert(task_id, serde_json::Value::Bool(false));
+            continue;
+        }
+        let exists = state
+            .transfers
+            .download_task_path(&owner, &task_id)
+            .ok()
+            .filter(|path| local_path_exists(path))
+            .is_some();
+        result.insert(task_id, serde_json::Value::Bool(exists));
+    }
+    Ok(result)
+}
+
 #[tauri::command]
 pub fn get_background_status<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,

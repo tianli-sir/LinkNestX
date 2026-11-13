@@ -212,6 +212,10 @@ pub struct TaskSnapshot {
     pub client_attachment_id: Option<String>,
     #[serde(default)]
     pub message_id: Option<String>,
+    /// Absolute destination of a completed download; surfaced so the UI can
+    /// offer "open file" without the renderer ever supplying paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
     #[serde(default)]
     pub metrics: super::metrics::Snapshot,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -262,6 +266,7 @@ impl Task {
                 document_id: None,
                 client_attachment_id: None,
                 message_id: None,
+                local_path: None,
                 metrics: metrics.clone(),
                 error: None,
             },
@@ -277,6 +282,15 @@ impl Task {
             resume_on_login: false,
             metrics_record: super::metrics::Record::fresh(metrics),
             owned_source: false,
+        }
+    }
+    /// The destination path of a finished download. Uploads and unfinished
+    /// tasks never qualify: their paths point at staging areas.
+    pub fn completed_download_path(&self) -> Option<&Path> {
+        if self.snapshot.direction == Direction::Download && self.snapshot.state == TaskState::Completed {
+            Some(Path::new(&self.path))
+        } else {
+            None
         }
     }
 }
@@ -346,5 +360,29 @@ impl AdminSharingPolicy {
             }
         };
         p
+    }
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::*;
+    #[test]
+    fn completed_downloads_expose_their_path_other_tasks_do_not() {
+        let mut task = Task::new("owner".into(), Direction::Download, "v".into(), "/tmp/a.bin".into());
+        assert!(task.completed_download_path().is_none());
+        task.snapshot.state = TaskState::Completed;
+        assert_eq!(task.completed_download_path(), Some(Path::new("/tmp/a.bin")));
+        let mut upload = Task::new("owner".into(), Direction::Upload, "v".into(), "/tmp/a.bin".into());
+        upload.snapshot.state = TaskState::Completed;
+        assert!(upload.completed_download_path().is_none());
+        let mut paused = Task::new("owner".into(), Direction::Download, "v".into(), "/tmp/a.bin".into());
+        paused.snapshot.state = TaskState::Paused;
+        assert!(paused.completed_download_path().is_none());
+    }
+    #[test]
+    fn old_task_rows_without_local_path_still_deserialize() {
+        let json = r#"{"id":"t","direction":"download","versionId":"v","name":"a","state":"completed","bytesCompleted":1,"totalBytes":1,"activeSources":[],"metrics":{"schemaVersion":1,"historyComplete":true,"measuredSince":null,"activeDurationMs":null,"transferDurationMs":null,"wallDurationMs":null,"networkBytes":0,"creditedNetworkBytes":0,"cacheBytes":0,"resumedBytes":0,"currentBytesPerSecond":0,"averageBytesPerSecond":null,"etaSeconds":null,"revision":1}}"#;
+        let snapshot: TaskSnapshot = serde_json::from_str(json).expect("legacy snapshot");
+        assert_eq!(snapshot.local_path, None);
     }
 }

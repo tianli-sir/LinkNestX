@@ -118,6 +118,9 @@ impl TransferService {
                         .record(t.snapshot.bytes_completed, t.snapshot.total_bytes)
                         .snapshot;
                 }
+                if t.completed_download_path().is_some() {
+                    t.snapshot.local_path = Some(t.path.clone());
+                }
                 t.snapshot
             })
             .collect())
@@ -126,6 +129,9 @@ impl TransferService {
         let mut task = task.clone();
         task.snapshot.group_id = task.group_id.clone();
         task.snapshot.document_id = task.document_id.clone();
+        task.snapshot.local_path = task
+            .completed_download_path()
+            .map(|_| task.path.clone());
         if let Some(live) = super::metrics::observer(&task.owner, &task.snapshot.id) {
             live.phase(&task.snapshot.state);
             task.metrics_record =
@@ -150,6 +156,18 @@ impl TransferService {
         self.events
             .emit("transfer.updated", serde_json::to_value(&task.snapshot)?);
         Ok(())
+    }
+    /// Resolves a finished download's destination from the task library. The
+    /// caller never supplies a path; the library entry is the whitelist.
+    pub fn download_task_path(&self, owner: &str, task_id: &str) -> Result<String> {
+        let task = self.db.get(task_id, owner)?;
+        let path = task
+            .completed_download_path()
+            .ok_or_else(|| TransferError::new("仅已完成的下载任务可以打开"))?;
+        if !path.is_absolute() {
+            return Err(TransferError::new("任务路径无效"));
+        }
+        Ok(path.to_string_lossy().into_owned())
     }
     pub async fn start_download(
         self: &Arc<Self>,
