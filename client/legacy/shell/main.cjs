@@ -136,7 +136,7 @@ else{
     if(body&&Notification.isSupported()){const notice=new Notification({title:'LinkNestX',body});notice.on('click',show);notice.show();}
   });
   host.on('unavailable',()=>{emit('service.error',{error:'后台服务已退出，请重新启动应用。'});});
-  window=new BrowserWindow({title:'LinkNestX',width:1280,height:840,minWidth:820,minHeight:600,backgroundColor:'#f5f7fa',show:false,autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,devTools:!app.isPackaged}});
+  window=new BrowserWindow({title:'LinkNestX',width:1280,height:840,minWidth:820,minHeight:600,backgroundColor:'#f5f7fa',show:false,autoHideMenuBar:true,icon:path.join(appRoot,'icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,devTools:!app.isPackaged}});
   window.webContents.setWindowOpenHandler(({url})=>{if(mayOpenExternal(url))void shell.openExternal(url);return {action:'deny'};});
   window.webContents.on('will-navigate',(event,url)=>{event.preventDefault();if(mayOpenExternal(url))void shell.openExternal(url);});
   window.webContents.on('will-attach-webview',event=>event.preventDefault());

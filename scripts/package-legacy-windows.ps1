@@ -45,11 +45,14 @@ try {
   Copy-Item $UiDirectory (Join-Path $appRoot 'ui') -Recurse
   Copy-Item (Join-Path $legacyRoot 'package.json') (Join-Path $appRoot 'package.json')
   Copy-Item (Join-Path $root 'client/src-tauri/icons/icon.png') (Join-Path $appRoot 'icon.png')
+  Copy-Item "$root/client/src-tauri/icons/icon.ico" (Join-Path $stage 'resources/app/icon.ico') -Force
   Copy-Item $NativeExecutable (Join-Path $nativeRoot 'linknestx-legacy-native.exe')
   Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE-LinkNestX.txt')
   Copy-Item (Join-Path $root 'docs/windows-compatibility.md') (Join-Path $stage 'WINDOWS-COMPATIBILITY.md')
   & node (Join-Path $legacyRoot 'tools/audit-pe.cjs') (Join-Path $nativeRoot 'linknestx-legacy-native.exe') $Architecture (Join-Path $stage 'native-imports.json')
   if ($LASTEXITCODE -ne 0) { throw 'Native Win7 import audit failed.' }
+  $exePath = Join-Path $stage 'LinkNestX-Legacy.exe'
+  npx --yes rcedit-x64 "$exePath" --set-icon (Join-Path $stage 'resources/app/icon.ico')
   $commit = (& git -C $root rev-parse HEAD).Trim()
   if ($LASTEXITCODE -ne 0) { throw 'Cannot determine source commit.' }
   @{ version = $version; architecture = $Architecture; minimumOS = 'Windows 7 SP1'; source = "https://github.com/tianli-sir/LinkNestX/tree/$commit"; electron = $electronVersion; electronArchiveSHA256 = $expected; nativeSHA256 = (Get-FileHash $NativeExecutable -Algorithm SHA256).Hash; signed = $false; updates = 'manual-full-package' } | ConvertTo-Json | Set-Content -Path (Join-Path $stage 'BUILD-INFO.json') -Encoding utf8
