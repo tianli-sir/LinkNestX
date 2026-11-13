@@ -36,6 +36,8 @@ func NewHandler(cfg config.Config) stdhttp.Handler {
 	}
 	mux.Handle("GET /healthz", healthHandler(version))
 	mux.Handle("GET /{$}", landingHandler())
+	mux.Handle("GET /favicon.svg", faviconHandler())
+	mux.Handle("GET /favicon.ico", faviconHandler())
 	mux.Handle("GET /app/", webAssets(cfg.WebAssetsDir))
 	registerReleaseRoutes(mux, cfg.ReleaseDir)
 	return mux
@@ -54,6 +56,8 @@ func NewRouterWithAuth(cfg config.Config, service *auth.AuthService) stdhttp.Han
 	mux := stdhttp.NewServeMux()
 	mux.Handle("/healthz", NewHandler(cfg))
 	mux.Handle("GET /{$}", landingHandler())
+	mux.Handle("/favicon.svg", faviconHandler())
+	mux.Handle("/favicon.ico", faviconHandler())
 	mux.Handle("GET /app/", webAssets(cfg.WebAssetsDir))
 	registerReleaseRoutes(mux, cfg.ReleaseDir)
 	if service != nil {

@@ -42,6 +42,27 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestFaviconRoutes(t *testing.T) {
+	cfg := config.Default()
+	handler := NewRouter(cfg)
+	for path, contentType := range map[string]string{
+		"/favicon.svg": "image/svg+xml",
+		"/favicon.ico": "image/x-icon",
+	} {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest(stdhttp.MethodGet, path, nil))
+		if w.Code != stdhttp.StatusOK {
+			t.Fatalf("%s status = %d", path, w.Code)
+		}
+		if got := w.Header().Get("Content-Type"); got != contentType {
+			t.Fatalf("%s content-type = %q", path, contentType)
+		}
+		if w.Body.Len() == 0 {
+			t.Fatalf("%s empty body", path)
+		}
+	}
+}
+
 func TestRootPagePreservesComposedRouterBoundaries(t *testing.T) {
 	cfg := config.Default()
 	cfg.Version = "root-page-test"
