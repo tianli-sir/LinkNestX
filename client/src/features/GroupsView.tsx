@@ -23,6 +23,11 @@ export interface Member {
   userId: string;
   role: "owner" | "member";
   joinedAt: string;
+  nickname?: string | null;
+  displayName: string;
+  accountNumber?: string;
+  hasAvatar?: boolean;
+  disabled?: boolean;
 }
 export function GroupsView({ client, user, initialGroupId = "", initialTab }: {
   client: RestClient;
@@ -123,33 +128,43 @@ function MembersView({ client, user, groupId, members, canManage, directory }: {
       setBusy(false);
     }
   }
-  return <section className="ln-feature"><ErrorNotice error={members.error} retry={members.refresh}/><ErrorNotice error={error}/>{members.loading && <Loading />}<ul className="ln-data-list">{!members.loading && !members.error && members.data?.map(member => <MemberProfileRow key={member.userId} member={member} me={user} client={client} online={presence[member.userId]} canManage={canManage} onRemove={() => setConfirm(member)}/>)}</ul>
+  return <section className="ln-feature"><ErrorNotice error={members.error} retry={members.refresh}/><ErrorNotice error={error}/>{members.loading && <Loading />}<ul className="ln-data-list">{!members.loading && !members.error && members.data?.map(member => <MemberProfileRow key={member.userId} member={member} group={{ id: groupId }} me={user} client={client} online={presence[member.userId]} canManage={canManage} onRemove={() => setConfirm(member)}/>)}</ul>
  {confirm && canManage && <div className="ln-confirm" role="group" aria-label="确认移除成员"><p>确定移除该成员？该成员将失去本群访问权限。</p><div className="ln-actions"><button className="ln-button ln-button-danger" disabled={busy} onClick={() => void remove()}>确认移除</button><button className="ln-button ln-button-secondary" onClick={() => setConfirm(null)}>取消</button></div></div>}
  {canManage && <form className="ln-inline-form" onSubmit={add}><h3>添加或更新成员</h3><ErrorNotice error={directory.error} retry={directory.refresh}/>{directory.data ? <Field label="选择同事" id="member-id"><select id="member-id" value={userId} onChange={event => setUserId(event.target.value)} required><option value="">请选择同事</option>{directory.data.map(person => <option key={person.id} value={person.id}>{person.username}{person.email ? ` · ${person.email}` : ""}</option>)}</select></Field> : <Field label="成员账号 ID" id="member-id"><input id="member-id" value={userId} onChange={event => setUserId(event.target.value)} required/></Field>}<Field label="群组角色" id="member-role"><select id="member-role" value={role} onChange={event => setRole(event.target.value)}><option value="member">成员</option><option value="owner">群主</option></select></Field><button className="ln-button ln-button-primary" disabled={busy || !userId.trim()}>保存成员</button></form>}
 </section>;
 }
 
-function MemberProfileRow({ member, me, client, online, canManage, onRemove }: {
+function MemberProfileRow({ member, group, me, client, online, canManage, onRemove }: {
   member: Member;
+  group: { id: string };
   me: User;
   client: RestClient;
   online?: boolean;
   canManage: boolean;
   onRemove: () => void;
 }) {
-  const resource = useResource(`member-profile-${member.userId}`, () => client.request<User>("GET", `/api/v1/profiles/${segment(member.userId)}`));
   const [open, setOpen] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  useDesktopEvent("server.event", event => {
-    if (event.type === "profile.changed" && (!event.userId || event.userId === member.userId)) resource.refresh();
-  });
-  const person = !resource.loading && !resource.error && resource.data?.id === member.userId && !resource.data.disabled ? resource.data : null;
-  async function direct(userId: string) {
-    const conversation = await client.request<{ id: string }>("POST", "/api/v1/conversations/direct", { userId });
-    if (!alive.current) return;
-    setOpen(false);
-    window.dispatchEvent(new CustomEvent("linknestx:open-conversation", { detail: { id: conversation.id } }));
+  const [error, setError] = useState("");
+  const disabled = !!member.disabled;
+  const person: User = {
+    id: member.userId,
+    username: member.displayName,
+    displayName: member.displayName,
+    email: "",
+    roles: ["member"],
+    disabled,
+    mustChangePassword: false,
+    accountNumber: member.accountNumber,
+    avatarUrl: member.hasAvatar ? `/api/v1/profiles/${member.userId}/avatar` : undefined,
+  };
+  async function direct() {
+    try {
+      const conversation = await client.request<{ id: string }>("POST", "/api/v1/conversations/direct", { userId: member.userId });
+      setOpen(false);
+      window.dispatchEvent(new CustomEvent("linknestx:open-conversation", { detail: { id: conversation.id } }));
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    }
   }
-  return <li><div className="ln-member-identity">{person ? <Avatar profile={person} onClick={() => setOpen(true)}/> : <Avatar name="?"/>}<div><strong>{person ? displayName(person) : resource.loading ? "正在加载资料…" : "资料不可用"}</strong>{person && <p className="ln-muted">{person.accountNumber && /^\d+$/.test(person.accountNumber) ? `账号 ${person.accountNumber}` : "账号信息暂不可用"}</p>}<p className="ln-muted">{member.role === "owner" ? "群主" : "成员"}{person && online !== undefined ? ` · ${online ? "在线" : "离线"}` : ""}</p></div></div>{canManage && <button className="ln-text-button ln-danger" onClick={onRemove}>移除</button>}{person && open && <ProfilePanel profile={person} me={me} client={client} onClose={() => setOpen(false)} onDirect={direct} onChanged={() => {}}/>}</li>;
+  return <li><div className="ln-member-identity">{disabled ? <Avatar name={member.displayName}/> : <Avatar profile={person} onClick={() => setOpen(true)}/>}<div><strong>{member.displayName}{disabled ? "（已停用）" : ""}</strong>{!disabled && <p className="ln-muted">{member.accountNumber && /^\d+$/.test(member.accountNumber) ? `账号 ${member.accountNumber}` : "账号信息暂不可用"}</p>}<p className="ln-muted">{member.role === "owner" ? "群主" : "成员"}{online !== undefined ? ` · ${online ? "在线" : "离线"}` : ""}</p></div></div>{canManage && <button className="ln-text-button ln-danger" onClick={onRemove}>移除</button>}<ErrorNotice error={error}/>{!disabled && open && <ProfilePanel profile={person} me={me} client={client} group={{ id: group.id }} nickname={member.nickname ?? null} onClose={() => setOpen(false)} onDirect={direct} onChanged={() => {}}/>}</li>;
 }
