@@ -1263,7 +1263,7 @@ paths:
       description: >-
         In-process LRU of 256 entries keyed by version. Sources the standard
         library cannot decode (including webp), oversized payloads and images
-        above 800 megapixels redirect to the preview route so the client can
+        above 80 megapixels redirect to the preview route so the client can
         scale the original in CSS.
       responses:
         '200': { description: PNG thumbnail bytes }
