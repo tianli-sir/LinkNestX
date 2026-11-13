@@ -35,24 +35,14 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "打开 LinkNestX", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出并停止传输", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit_item])?;
-    let mut pixels = vec![0u8; 32 * 32 * 4];
-    for y in 0..32 {
-        for x in 0..32 {
-            let p = (y * 32 + x) * 4;
-            let mark = (8..13).contains(&x) && (7..25).contains(&y)
-                || (8..25).contains(&x) && (20..25).contains(&y);
-            pixels[p..p + 4].copy_from_slice(if mark {
-                &[255, 255, 255, 255]
-            } else {
-                &[14, 116, 144, 255]
-            });
-        }
-    }
-    TrayIconBuilder::with_id("linknestx")
-        .icon(tauri::image::Image::new_owned(pixels, 32, 32))
+    let mut builder = TrayIconBuilder::with_id("linknestx")
         .tooltip("LinkNestX · 后台传输服务")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(false);
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show(app),
             "quit" => quit(app),
