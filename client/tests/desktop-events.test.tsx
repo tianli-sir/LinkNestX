@@ -89,3 +89,22 @@ it.each(['service.error','sharing.changed','sharing.revoked','sharing.activity',
  function Consumer(){const [received,setReceived]=useState('');useDesktopEvent(name,v=>setReceived(v.marker));return <output aria-label="支持的后台事件">{received}</output>}
  render(<DesktopProvider><Consumer/></DesktopProvider>);await act(async()=>{await emit(name.replaceAll('.',':'),{marker:'received'})});expect(screen.getByLabelText('支持的后台事件')).toHaveTextContent('received');
 });
+
+test('window.foreground survives a failing onResized subscription',async()=>{
+ // Static imports above already loaded DesktopProvider; reset the module
+ // registry so the dynamic import resolves @tauri-apps/api/window from doMock.
+ vi.resetModules();
+ vi.doMock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({
+  isFocused:async()=>true,isMinimized:async()=>false,
+  onFocusChanged:async(cb:(e:{payload:boolean})=>void)=>{cb;return()=>{}},
+  onResized:async()=>{throw new Error('unsupported')},
+ })}));
+ const {DesktopProvider,useDesktop}=await import('../src/runtime/DesktopProvider');
+ let foreground=true;
+ const Probe=()=>{foreground=useDesktop().foreground;return null};
+ const view=render(<DesktopProvider><Probe/></DesktopProvider>);
+ await waitFor(()=>expect(foreground).toBe(true));
+ view.unmount();
+ vi.doUnmock('@tauri-apps/api/window');
+ vi.resetModules();
+});

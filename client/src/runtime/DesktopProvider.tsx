@@ -19,7 +19,10 @@ const nativeDesktop: DesktopAdapter = { invoke, listen: async (event, callback) 
       callback(false);
       const refresh=async()=>{const run=++revision;try{const [focused,minimized]=await Promise.all([current.isFocused(),current.isMinimized()]);if(!stopped&&run===revision)callback(focused&&!minimized)}catch{if(!stopped&&run===revision)callback(false)}};
       const unfocus=await current.onFocusChanged(event=>{if(!event.payload){revision++;callback(false)}else void refresh()});
-      let unresize:()=>void;try{unresize=await current.onResized(()=>void refresh())}catch(error){unfocus();throw error}
+      // onResized only accelerates refresh on minimize/restore; focus events
+      // remain the primary signal, so a failing subscription degrades quietly.
+      let unresize:()=>void=()=>{};
+      try{unresize=await current.onResized(()=>void refresh())}catch{/* optional signal */}
       void refresh();return()=>{stopped=true;revision++;unfocus();unresize()};
     }
     // Logical event names stay dotted; Tauri's event channels do not allow dots.
