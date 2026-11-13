@@ -672,7 +672,12 @@ pub async fn file_attachment_preview(
     ) {
         return Err(TransferError::new("此附件不支持图片预览"));
     }
-    let bytes = crate::auth::session::limited_body(response, 256 * 1024 * 1024).await?;
+    let bytes = match crate::auth::session::limited_body(response, 256 * 1024 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Err(TransferError::new("图片过大，请下载后查看"));
+        }
+    };
     if state.auth.owner().await? != owner {
         return Err(TransferError::new("登录账户已更改"));
     }

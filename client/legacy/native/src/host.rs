@@ -453,7 +453,11 @@ impl Host {
                 let a: VersionOnly = decode(args)?;
                 segment(&a.version_id)?;
                 let limit = if command == "file_attachment_preview" {
-                    256 * 1024 * 1024
+                    // The legacy protocol caps any response at 72 MiB and
+                    // base64 inflates by 4/3, so anything above ~50 MiB of
+                    // image bytes would fail the frame limit with an opaque
+                    // error; reject earlier with a clear message instead.
+                    50 * 1024 * 1024
                 } else {
                     20 * 1024 * 1024
                 };
@@ -473,7 +477,12 @@ impl Host {
                         false,
                     )
                     .await?;
-                let bytes = limited_body(response, limit).await?;
+                let bytes = match limited_body(response, limit).await {
+                    Ok(bytes) => bytes,
+                    Err(_) => {
+                        return Err(TransferError::new("图片过大，请下载后查看"));
+                    }
+                };
                 if self.auth.owner().await? != owner {
                     return Err(TransferError::new("登录账户已更改"));
                 }
