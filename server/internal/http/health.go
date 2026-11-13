@@ -71,6 +71,7 @@ func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.Gro
 	mux := stdhttp.NewServeMux()
 	mux.Handle("/", NewRouterWithAuth(cfg, a))
 	g.SetMemberObserver(hub.MembershipChanged)
+	g.SetNicknameObserver(hub.NicknameChanged)
 	NewGroupHandlers(g).Register(mux, a)
 	(&SocialHandlers{Service: social.New(a, c, hub), Chat: c}).Register(mux, a)
 	ch := NewChatHandlers(c)

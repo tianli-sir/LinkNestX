@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -41,10 +42,11 @@ type Member struct {
 	Disabled      bool       `json:"disabled"`
 }
 type GroupService struct {
-	repo           *Repository
-	auth           *auth.AuthService
-	observer       func(string, string)
-	systemObserver func(context.Context, string)
+	repo             *Repository
+	auth             *auth.AuthService
+	observer         func(string, string)
+	nicknameObserver func(string, string)
+	systemObserver   func(context.Context, string)
 }
 
 func NewGroupService(conn *sql.DB, a *auth.AuthService) *GroupService {
@@ -140,6 +142,47 @@ func (s *GroupService) RemoveMember(ctx context.Context, actorID, groupID, userI
 }
 
 func (s *GroupService) SetMemberObserver(observer func(string, string)) { s.observer = observer }
+
+// SetMemberNickname stores the actor's own group-scoped display name. An empty
+// nickname clears the override so the global profile name applies again. Only
+// the member themselves may change it; direct conversations never carry
+// nicknames.
+func (s *GroupService) SetMemberNickname(ctx context.Context, actorID, groupID, nickname string) error {
+	if err := s.auth.ValidateActor(ctx, actorID); err != nil {
+		return err
+	}
+	var exists int
+	if err := s.repo.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM groups WHERE id=?)`, groupID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return ErrNotFound
+	}
+	if direct, err := IsDirect(ctx, s.repo.db, groupID); err != nil {
+		return err
+	} else if direct {
+		return ErrForbidden
+	}
+	if err := s.RequireMember(ctx, actorID, groupID); err != nil {
+		return err
+	}
+	nickname = strings.TrimSpace(nickname)
+	if nickname != "" && (!utf8.ValidString(nickname) || utf8.RuneCountInString(nickname) > 80 || strings.IndexFunc(nickname, unicode.IsControl) >= 0) {
+		return ErrInvalidInput
+	}
+	result, err := s.repo.db.ExecContext(ctx, `UPDATE group_members SET nickname=? WHERE group_id=? AND user_id=?`, sql.NullString{String: nickname, Valid: nickname != ""}, groupID, actorID)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if s.nicknameObserver != nil {
+		s.nicknameObserver(groupID, actorID)
+	}
+	return nil
+}
+func (s *GroupService) SetNicknameObserver(observer func(string, string)) { s.nicknameObserver = observer }
 
 func (s *GroupService) SetSystemMessageObserver(observer func(context.Context, string)) {
 	s.systemObserver = observer

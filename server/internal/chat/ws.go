@@ -265,6 +265,14 @@ func (h *Hub) MembershipChanged(group, user string) {
 		h.send(p, e)
 	}
 }
+// nickname.changed refreshes one member's group-scoped display name without
+// the unrelated membership notices.
+func (h *Hub) NicknameChanged(group, user string) {
+	id := uuid.NewString()
+	for _, p := range h.snapshot() {
+		h.send(p, Event{Type: "nickname.changed", EventID: id, GroupID: group, UserID: user})
+	}
+}
 func (h *Hub) FilesChanged() {
 	id := uuid.NewString()
 	for _, p := range h.snapshot() {

@@ -17,6 +17,7 @@ func (h *GroupHandlers) Register(mux *http.ServeMux, a *auth.AuthService) {
 	mux.Handle("GET /api/v1/groups/{groupID}/members", RequireAuth(a, http.HandlerFunc(h.ListMembers)))
 	mux.Handle("POST /api/v1/groups/{groupID}/members", RequireAuth(a, http.HandlerFunc(h.AddMember)))
 	mux.Handle("DELETE /api/v1/groups/{groupID}/members/{userID}", RequireAuth(a, http.HandlerFunc(h.RemoveMember)))
+	mux.Handle("PATCH /api/v1/groups/{groupID}/members/{userID}", RequireAuth(a, http.HandlerFunc(h.SetMemberNickname)))
 }
 func (h *GroupHandlers) List(w http.ResponseWriter, r *http.Request) {
 	actor := UserIDFromContext(r.Context())
@@ -69,6 +70,25 @@ func (h *GroupHandlers) AddMember(w http.ResponseWriter, r *http.Request) {
 func (h *GroupHandlers) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	err := h.Service.RemoveMember(r.Context(), UserIDFromContext(r.Context()), r.PathValue("groupID"), r.PathValue("userID"))
 	if err != nil {
+		groupError(w, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+func (h *GroupHandlers) SetMemberNickname(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("userID") != UserIDFromContext(r.Context()) {
+		writeError(w, 403, groups.ErrForbidden)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	var in struct {
+		Nickname string `json:"nickname"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, 400, err)
+		return
+	}
+	if err := h.Service.SetMemberNickname(r.Context(), UserIDFromContext(r.Context()), r.PathValue("groupID"), in.Nickname); err != nil {
 		groupError(w, err)
 		return
 	}

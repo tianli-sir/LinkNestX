@@ -427,7 +427,7 @@ func (s *Service) OpenDirect(ctx context.Context, actor, other string) (Conversa
 		for _, q := range []struct {
 			sql  string
 			args []any
-		}{{`INSERT INTO groups(id,name,created_by,created_at) VALUES(?,'',?,?)`, []any{id, actor, now}}, {`INSERT INTO group_members VALUES(?,?,'member',?),(?,?,'member',?)`, []any{id, lo, now, id, hi, now}}, {`INSERT INTO direct_conversations VALUES(?,?,?)`, []any{id, lo, hi}}} {
+		}{{`INSERT INTO groups(id,name,created_by,created_at) VALUES(?,'',?,?)`, []any{id, actor, now}}, {`INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES(?,?,'member',?),(?,?,'member',?)`, []any{id, lo, now, id, hi, now}}, {`INSERT INTO direct_conversations VALUES(?,?,?)`, []any{id, lo, hi}}} {
 			if _, e = tx.ExecContext(ctx, q.sql, q.args...); e != nil {
 				return Conversation{}, e
 			}
