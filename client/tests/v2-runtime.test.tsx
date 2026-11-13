@@ -36,6 +36,40 @@ test('read acknowledgements retry while still visible and stop retrying after lo
  vi.useFakeTimers();const send=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(['m1']);const tracker=new VisibleReadTracker(send);tracker.setEnabled(true);tracker.visible('m1',true);await vi.advanceTimersByTimeAsync(401);expect(send).toHaveBeenCalledTimes(1);await vi.advanceTimersByTimeAsync(1800);expect(send).toHaveBeenCalledTimes(2);tracker.dispose();
  const offline=vi.fn().mockRejectedValue(new Error('offline'));const second=new VisibleReadTracker(offline);second.setEnabled(true);second.visible('m2',true);await vi.advanceTimersByTimeAsync(401);second.setEnabled(false);await vi.advanceTimersByTimeAsync(10000);expect(offline).toHaveBeenCalledTimes(1);second.dispose();vi.useRealTimers();
 });
+test('read tracker keeps a slow 30s retry after fast attempts',async()=>{
+ vi.useFakeTimers();const send=vi.fn().mockRejectedValue(new Error('offline'));
+ const tracker=new VisibleReadTracker(send);tracker.setEnabled(true);tracker.visible('m1',true);
+ await vi.advanceTimersByTimeAsync(401+1000+2000+4000+4000); // 3 次快速退避（1s/2s/4s，每次重试含 400ms 停留）
+ expect(send).toHaveBeenCalledTimes(4);
+ await vi.advanceTimersByTimeAsync(26000);expect(send).toHaveBeenCalledTimes(4); // 30 秒内不再轰炸
+ await vi.advanceTimersByTimeAsync(5000);expect(send).toHaveBeenCalledTimes(5); // 慢重试在 ~30s 后落地
+ tracker.dispose();vi.useRealTimers();
+});
+test('read tracker sheds poison ids on repeated 400 without losing the rest',async()=>{
+ vi.useFakeTimers();
+ const send=vi.fn(async(ids:string[])=>{if(ids.includes('bad'))throw{status:400};return ids});
+ const tracker=new VisibleReadTracker(send);tracker.setEnabled(true);
+ tracker.visible('bad',true);tracker.visible('ok1',true);tracker.visible('ok2',true);
+ await vi.advanceTimersByTimeAsync(401);
+ const flat=()=>send.mock.calls.flatMap(([ids])=>ids as string[]);
+ expect(flat()).toContain('ok1');expect(flat()).toContain('ok2');
+ expect(flat().filter(id=>id==='bad').length).toBeGreaterThan(0); // 至少尝试过整批
+ await vi.advanceTimersByTimeAsync(60000);
+ const callsWithOnlyOk=send.mock.calls.filter(([ids])=>(ids as string[]).every(id=>id!=='bad'));
+ expect(callsWithOnlyOk.length).toBeGreaterThan(0);
+ expect(flat().filter(id=>id==='bad').length).toBeLessThan(10); // 没有无限重试
+ tracker.dispose();vi.useRealTimers();
+});
+test('read tracker resets attempts when an id becomes visible again',async()=>{
+ vi.useFakeTimers();let failures=0;
+ const send=vi.fn(async(ids:string[])=>{if(ids.includes('m1')&&failures<2){failures++;throw new Error('offline')}return ids});
+ const tracker=new VisibleReadTracker(send);tracker.setEnabled(true);tracker.visible('m1',true);
+ await vi.advanceTimersByTimeAsync(401); // 首次上报失败一次，attempts=1，重试排在 1000ms 后
+ tracker.visible('m1',false);tracker.visible('m1',true); // 重新可见：清空重试计时并复位 attempts
+ await vi.advanceTimersByTimeAsync(2101); // 新一轮失败后仍按首轮 1s 退避：第 3 次上报落在窗口内（若未复位则要等 2s，落在窗口外）
+ expect(send).toHaveBeenCalledTimes(3);expect(failures).toBe(2);
+ tracker.dispose();vi.useRealTimers();
+});
 test('rest errors expose HTTP status for both transports',async()=>{
  const failing=async()=>new Response(JSON.stringify({error:'bad'}),{status:400,headers:{'Content-Type':'application/json'}});
  const browser=createBrowserTransport(failing as typeof fetch);
