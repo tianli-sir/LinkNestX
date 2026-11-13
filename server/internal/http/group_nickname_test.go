@@ -145,3 +145,119 @@ func TestSetMemberNicknameRejectedForDirectConversation(t *testing.T) {
 	direct := f.direct(t)
 	expectCode(t, f.req("PATCH", "/api/v1/groups/"+direct+"/members/"+f.alice.User.ID, `{"nickname":"私聊不许"}`, f.alice), 403)
 }
+
+func TestChatNamesResolveGroupNickname(t *testing.T) {
+	f := newSocialFixture(t)
+	f.a.Database().Exec(`UPDATE profiles SET display_name='爱丽丝' WHERE user_id=?`, f.alice.User.ID)
+	group := fixtureGroup(t, f)
+	expectCode(t, f.req("PATCH", "/api/v1/groups/"+group+"/members/"+f.alice.User.ID, `{"nickname":"小爱"}`, f.alice), 204)
+	expectCode(t, f.req("PATCH", "/api/v1/groups/"+group+"/members/"+f.bob.User.ID, `{"nickname":"老鲍"}`, f.bob), 204)
+
+	// 1) 群消息发送者显示昵称
+	w := f.req("POST", "/api/v1/conversations/"+group+"/messages", `{"body":"大家好","clientMessageId":"c-nick-1"}`, f.alice)
+	var posted struct {
+		ID     string `json:"id"`
+		Sender struct {
+			DisplayName string `json:"displayName"`
+		} `json:"sender"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&posted); err != nil || posted.ID == "" {
+		t.Fatalf("message not sent: %d %s err=%v", w.Code, w.Body.String(), err)
+	}
+	if posted.Sender.DisplayName != "小爱" {
+		t.Fatalf("posted sender name = %q, want 小爱", posted.Sender.DisplayName)
+	}
+	w = f.req("GET", "/api/v1/conversations/"+group+"/messages?limit=50", "", f.bob)
+	var page struct {
+		Messages []struct {
+			ID     string `json:"id"`
+			Sender struct {
+				DisplayName string `json:"displayName"`
+			} `json:"sender"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, m := range page.Messages {
+		if m.ID == posted.ID {
+			seen = true
+			if m.Sender.DisplayName != "小爱" {
+				t.Fatalf("listed sender name = %q, want 小爱", m.Sender.DisplayName)
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("posted message missing from page")
+	}
+
+	// 2) 已读名单显示昵称
+	expectCode(t, f.req("POST", "/api/v1/conversations/"+group+"/read", `{"messageIds":["`+posted.ID+`"]}`, f.bob), 200)
+	w = f.req("GET", "/api/v1/conversations/"+group+"/messages/"+posted.ID+"/readers", "", f.alice)
+	var readers struct {
+		Readers []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"displayName"`
+		} `json:"readers"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&readers); err != nil {
+		t.Fatal(err)
+	}
+	foundReader := false
+	for _, r := range readers.Readers {
+		if r.ID == f.bob.User.ID {
+			foundReader = true
+			if r.DisplayName != "老鲍" {
+				t.Fatalf("reader name = %q, want 老鲍", r.DisplayName)
+			}
+		}
+	}
+	if !foundReader {
+		t.Fatalf("bob missing from readers: %+v", readers)
+	}
+
+	// 3) 新系统消息正文用群内生效名（移出老鲍）
+	expectCode(t, f.req("DELETE", "/api/v1/groups/"+group+"/members/"+f.bob.User.ID, "", f.admin), 204)
+	w = f.req("GET", "/api/v1/conversations/"+group+"/messages?limit=50", "", f.alice)
+	var raw struct {
+		Messages []struct {
+			Kind string  `json:"kind"`
+			Body *string `json:"body"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&raw); err != nil {
+		t.Fatal(err)
+	}
+	sysNamed := false
+	for _, m := range raw.Messages {
+		if m.Kind == "system" && m.Body != nil && strings.Contains(*m.Body, "老鲍") {
+			sysNamed = true
+		}
+	}
+	if !sysNamed {
+		t.Fatalf("system message does not use nickname: %+v", raw.Messages)
+	}
+}
+
+func TestDirectConversationNamesIgnoreNicknames(t *testing.T) {
+	f := newSocialFixture(t)
+	f.a.Database().Exec(`UPDATE profiles SET display_name='全局爱丽丝' WHERE user_id=?`, f.alice.User.ID)
+	// 先在有昵称的群里设置昵称，证明私聊不受污染
+	group := fixtureGroup(t, f)
+	expectCode(t, f.req("PATCH", "/api/v1/groups/"+group+"/members/"+f.alice.User.ID, `{"nickname":"小爱"}`, f.alice), 204)
+	direct := f.direct(t)
+	w := f.req("POST", "/api/v1/conversations/"+direct+"/messages", `{"body":"私聊","clientMessageId":"c-nick-2"}`, f.alice)
+	var posted struct {
+		ID     string `json:"id"`
+		Sender struct {
+			DisplayName string `json:"displayName"`
+		} `json:"sender"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&posted); err != nil || posted.ID == "" {
+		t.Fatalf("message not sent: %d %s err=%v", w.Code, w.Body.String(), err)
+	}
+	if posted.Sender.DisplayName != "全局爱丽丝" {
+		t.Fatalf("direct sender name = %q, want 全局爱丽丝", posted.Sender.DisplayName)
+	}
+}

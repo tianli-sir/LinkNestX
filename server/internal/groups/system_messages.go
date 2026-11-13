@@ -10,9 +10,11 @@ import (
 // The notice is written in the membership transaction. Publication happens only
 // after commit, and the chat hub rechecks current membership before delivery.
 func appendSystemMessage(ctx context.Context, tx *sql.Tx, actor, group, target, event string, at time.Time) (string, error) {
+	// Group-scoped: the effective name freezes into the system message body at
+	// insert time; historical bodies are never rewritten.
 	name := func(id string) (string, error) {
 		var value string
-		err := tx.QueryRowContext(ctx, "SELECT CASE WHEN p.display_name='' THEN u.username ELSE p.display_name END FROM users u JOIN profiles p ON p.user_id=u.id WHERE u.id=?", id).Scan(&value)
+		err := tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(gm.nickname,''),NULLIF(p.display_name,''),u.username) FROM users u JOIN profiles p ON p.user_id=u.id LEFT JOIN group_members gm ON gm.group_id=? AND gm.user_id=u.id WHERE u.id=?`, group, id).Scan(&value)
 		return value, err
 	}
 	actorName, err := name(actor)

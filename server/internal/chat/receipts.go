@@ -2,26 +2,78 @@ package chat
 
 import (
 	"context"
-
-	"github.com/linknestx/linknestx/server/internal/auth"
+	"database/sql"
+	"errors"
 	"sort"
 	"time"
+
+	"github.com/linknestx/linknestx/server/internal/auth"
 )
 
 // The same entitlement predicate drives the public readers list and count.
 const entitledReaders = ` FROM message_reads r JOIN messages m ON m.id=r.message_id JOIN users u ON u.id=r.user_id JOIN profiles p ON p.user_id=u.id JOIN group_members gm ON gm.group_id=m.group_id AND gm.user_id=r.user_id WHERE r.message_id=? AND r.user_id<>m.sender_id AND u.disabled=0 AND m.expired_at IS NULL AND (NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=m.group_id) OR EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=m.group_id AND r.user_id IN(d.pair_low,d.pair_high)))`
 
 func (s *ChatService) project(ctx context.Context, actor string, m *Message) error {
+	return s.projectWith(ctx, actor, m, nil)
+}
+
+// projectWith resolves the sender and read state. nicknames is nil for
+// single-message paths (one extra lookup per message) or a prefetched map for
+// page projection (missing key = no nickname, no extra query).
+func (s *ChatService) projectWith(ctx context.Context, actor string, m *Message, nicknames map[string]string) error {
 	m.ConversationID = m.GroupID
 	u, e := s.auth.User(ctx, m.SenderID)
 	if e != nil {
 		return e
 	}
 	m.Sender = &u
+	if e = s.applyGroupNickname(ctx, m, nicknames); e != nil {
+		return e
+	}
 	if e = s.repo.db.QueryRowContext(ctx, `SELECT count(*)`+entitledReaders, m.ID).Scan(&m.ReadCount); e != nil {
 		return e
 	}
 	return s.repo.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM message_reads WHERE message_id=? AND user_id=?)`, m.ID, actor).Scan(&m.ReadByMe)
+}
+
+// applyGroupNickname overlays the sender's group nickname on the global profile
+// name. Direct conversations never carry nicknames.
+func (s *ChatService) applyGroupNickname(ctx context.Context, m *Message, nicknames map[string]string) error {
+	if m.Sender == nil {
+		return nil
+	}
+	nick, present := nicknames[m.SenderID]
+	if !present && nicknames == nil {
+		var value string
+		e := s.repo.db.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(gm.nickname,''),'') FROM group_members gm WHERE gm.group_id=? AND gm.user_id=? AND NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=gm.group_id)`, m.GroupID, m.SenderID).Scan(&value)
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
+			return e
+		}
+		nick = value
+	}
+	if nick != "" {
+		m.Sender.DisplayName = nick
+	}
+	return nil
+}
+
+// prefetchNicknames loads a group's non-empty nicknames in one query so page
+// projection avoids a per-message lookup.
+func (s *ChatService) prefetchNicknames(ctx context.Context, groupID string) (map[string]string, error) {
+	rows, e := s.repo.db.QueryContext(ctx, `SELECT gm.user_id,gm.nickname FROM group_members gm WHERE gm.group_id=? AND COALESCE(gm.nickname,'')<>'' AND NOT EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=gm.group_id)`, groupID)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	nicknames := map[string]string{}
+	for rows.Next() {
+		var id, nickname string
+		if e = rows.Scan(&id, &nickname); e != nil {
+			return nil, e
+		}
+		nicknames[id] = nickname
+	}
+	return nicknames, rows.Err()
 }
 func (s *ChatService) ConversationPage(ctx context.Context, actor, id, before, after string, limit int) (MessagePage, error) {
 	if e := s.groups.RequireMember(ctx, actor, id); e != nil {
@@ -91,8 +143,12 @@ func (s *ChatService) ConversationPage(ctx context.Context, actor, id, before, a
 		return page, e
 	}
 	sort.Slice(page.Messages, func(i, j int) bool { return page.Messages[i].Sequence < page.Messages[j].Sequence })
+	nicknames, e := s.prefetchNicknames(ctx, id)
+	if e != nil {
+		return page, e
+	}
 	for i := range page.Messages {
-		if e = s.project(ctx, actor, &page.Messages[i]); e != nil {
+		if e = s.projectWith(ctx, actor, &page.Messages[i], nicknames); e != nil {
 			return page, e
 		}
 	}
@@ -187,7 +243,7 @@ func (s *ChatService) Readers(ctx context.Context, actor, id, message string) (R
 	if n != 1 {
 		return out, ErrInvalidInput
 	}
-	rows, e := tx.QueryContext(ctx, `SELECT u.id,u.username,u.email,u.disabled,u.must_change_password,u.created_at,p.account_number,p.display_name,p.avatar IS NOT NULL,r.read_at`+entitledReaders+` ORDER BY r.read_at,u.id`, message)
+	rows, e := tx.QueryContext(ctx, `SELECT u.id,u.username,u.email,u.disabled,u.must_change_password,u.created_at,p.account_number,CASE WHEN EXISTS(SELECT 1 FROM direct_conversations d WHERE d.group_id=gm.group_id) THEN COALESCE(NULLIF(p.display_name,''),u.username) ELSE COALESCE(NULLIF(gm.nickname,''),NULLIF(p.display_name,''),u.username) END,p.avatar IS NOT NULL,r.read_at`+entitledReaders+` ORDER BY r.read_at,u.id`, message)
 	if e != nil {
 		return out, e
 	}

@@ -169,9 +169,7 @@ func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID,
 			return "", ErrLastOwner
 		}
 	}
-	if remove {
-		_, err = tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id=? AND user_id=?`, groupID, userID)
-	} else {
+	if !remove {
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id=? AND disabled=0`, userID).Scan(&exists); err != nil {
 			return "", err
 		}
@@ -179,9 +177,9 @@ func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID,
 			return "", ErrNotFound
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES(?,?,?,?) ON CONFLICT(group_id,user_id) DO UPDATE SET role=excluded.role`, groupID, userID, role, time.Now().UTC().Format(time.RFC3339Nano))
-	}
-	if err != nil {
-		return "", err
+		if err != nil {
+			return "", err
+		}
 	}
 	action := "group.member_updated"
 	if remove {
@@ -196,9 +194,16 @@ func (r *Repository) changeMember(ctx context.Context, actorID, groupID, userID,
 	} else if existingRole != "" {
 		event = "group.owner_changed"
 	}
+	// The system message resolves the departing member's group nickname from
+	// group_members, so remove the membership only after the body is written.
 	messageID, err := appendSystemMessage(ctx, tx, actorID, groupID, userID, event, time.Now())
 	if err != nil {
 		return "", err
+	}
+	if remove {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id=? AND user_id=?`, groupID, userID); err != nil {
+			return "", err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return "", err
