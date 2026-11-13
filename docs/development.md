@@ -145,6 +145,14 @@ Packaging builds the frontend first, then builds the native app with the Cargo l
 
 构建结果以对应提交的 Actions 为准；Windows/macOS 实机验收仍需分别完成。Read Actions for the corresponding commit for build status; each platform still needs device acceptance.
 
+### 应用图标再生成
+
+图标唯一源是 `brand/mark.svg`（官网线条立方体）。改源后运行：
+
+    cd client && npx tauri icon ../brand/mark.svg -o src-tauri/icons
+
+提交生成的全部图标文件；托盘图标随 `default_window_icon()` 自动一致，无需单独维护。
+
 ### 更新发布 / Publishing updates
 
 首次从 0.1 升级到 0.2 需手动安装。后续发布须同步 npm、Cargo、Tauri 版本并提升更新序号，使用自己的离线签名密钥与对应客户端公钥。正式密钥不得提交到仓库、打包进客户端或上传到公开服务。
