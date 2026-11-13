@@ -449,6 +449,77 @@ impl Host {
                     base64::engine::general_purpose::STANDARD.encode(bytes)
                 )))
             }
+            "file_attachment_preview" | "file_attachment_thumb" => {
+                let a: VersionOnly = decode(args)?;
+                segment(&a.version_id)?;
+                let limit = if command == "file_attachment_preview" {
+                    256 * 1024 * 1024
+                } else {
+                    20 * 1024 * 1024
+                };
+                let tail = if command == "file_attachment_preview" {
+                    "preview"
+                } else {
+                    "thumb"
+                };
+                let owner = self.auth.owner().await?;
+                let response = self
+                    .auth
+                    .request_for(
+                        &owner,
+                        "GET",
+                        &format!("/api/v1/files/{}/{}", a.version_id, tail),
+                        None,
+                        false,
+                    )
+                    .await?;
+                let bytes = limited_body(response, limit).await?;
+                if self.auth.owner().await? != owner {
+                    return Err(TransferError::new("登录账户已更改"));
+                }
+                let mime = preview_mime(&bytes)?;
+                Ok(json!(format!(
+                    "data:{};base64,{}",
+                    mime,
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                )))
+            }
+            // Path resolution happens in the shared transfer module; the shell
+            // main process receives the path and performs the OS launch itself.
+            // The renderer never sees the path.
+            "open_downloaded_file" | "reveal_downloaded_file" => {
+                let a: TaskId = decode(args)?;
+                let owner = self.auth.owner().await?;
+                let path = self.transfers.download_task_path(&owner, &a.task_id)?;
+                let exists = tokio::task::spawn_blocking({
+                    let path = path.clone();
+                    move || std::path::Path::new(&path).symlink_metadata().is_ok()
+                })
+                .await
+                .map_err(|_| TransferError::new("打开操作已取消"))?;
+                if !exists {
+                    return Err(TransferError::new("文件已不在原位置"));
+                }
+                Ok(json!({"path": path}))
+            }
+            "check_downloaded_files" => {
+                let a: TaskIds = decode(args)?;
+                if a.task_ids.len() > 200 {
+                    return Err(TransferError::new("检查任务过多"));
+                }
+                let owner = self.auth.owner().await?;
+                let mut result = serde_json::Map::new();
+                for id in a.task_ids {
+                    let exists = self
+                        .transfers
+                        .download_task_path(&owner, &id)
+                        .ok()
+                        .filter(|path| std::path::Path::new(path).symlink_metadata().is_ok())
+                        .is_some();
+                    result.insert(id, serde_json::Value::Bool(exists));
+                }
+                Ok(serde_json::Value::Object(result))
+            }
             "get_update_status" | "check_for_updates" | "defer_update" => Ok(
                 json!({"phase":"unsupported","message":"Windows 7 兼容版请通过管理员提供的完整安装包手动更新。"}),
             ),
@@ -517,6 +588,10 @@ args!(Preview {
     document_id: String,
     version_id: String
 });
+args!(VersionOnly {
+    version_id: String
+});
+args!(TaskIds { task_ids: Vec<String> });
 struct ShellSavePicker(Option<PathBuf>);
 #[async_trait::async_trait]
 impl AuditSavePicker for ShellSavePicker {
@@ -570,6 +645,23 @@ mod tests {
             false
         );
         host.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn file_launch_commands_require_a_logged_in_owner() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Host::open(root.path(), Arc::new(crate::events::NoopEvents)).unwrap();
+        for command in [
+            "open_downloaded_file",
+            "reveal_downloaded_file",
+            "check_downloaded_files",
+            "file_attachment_preview",
+            "file_attachment_thumb",
+        ] {
+            assert!(host
+                .dispatch(command, json!({"taskId":"t","taskIds":["t"],"versionId":"v"}))
+                .await
+                .is_err());
+        }
     }
     #[test]
     fn attachment_previews_reject_active_content() {
