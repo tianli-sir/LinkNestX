@@ -12,6 +12,7 @@ func (h *AuthHandlers) registerAccounts(mux *http.ServeMux) {
 		"GET /api/v1/admin/users":                       h.AdminUsers,
 		"PATCH /api/v1/admin/users/{id}/account-number": h.UpdateAccountNumber,
 		"PATCH /api/v1/admin/users/{id}/username":       h.UpdateUsername,
+		"POST /api/v1/admin/users/{id}/delete":          h.DeleteUser,
 		"POST /api/v1/admin/users/{id}/disable":         h.DisableUser,
 		"POST /api/v1/admin/users/{id}/password":        h.ResetPassword,
 		"POST /api/v1/admin/users/{id}/revoke-sessions": h.RevokeUserSessions,
@@ -53,6 +54,17 @@ func (h *AuthHandlers) UpdateUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	if err := decodeJSON(r, &struct{}{}); err != nil {
+		authError(w, err)
+		return
+	}
+	if err := h.Service.DeleteUser(r.Context(), r.PathValue("id")); err != nil {
+		authError(w, err)
+		return
+	}
+	w.WriteHeader(204)
 }
 func (h *AuthHandlers) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	var in auth.ChangePasswordInput

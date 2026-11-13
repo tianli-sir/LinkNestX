@@ -158,7 +158,8 @@ func authError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err)
 	case errors.Is(err, auth.ErrDisabledAccount), errors.Is(err, auth.ErrAdminRequired), errors.Is(err, auth.ErrPasswordChangeRequired):
 		writeError(w, http.StatusForbidden, err)
-	case errors.Is(err, auth.ErrLastAdmin), errors.Is(err, auth.ErrAccountNumberConflict), errors.Is(err, auth.ErrUsernameConflict):
+	case errors.Is(err, auth.ErrLastAdmin), errors.Is(err, auth.ErrAccountNumberConflict), errors.Is(err, auth.ErrUsernameConflict),
+		errors.Is(err, auth.ErrCannotDeleteSelf), errors.Is(err, auth.ErrAdminProtected):
 		writeError(w, 409, err)
 	case errors.Is(err, auth.ErrAccountNumbersExhausted):
 		writeError(w, http.StatusServiceUnavailable, err)

@@ -300,7 +300,11 @@ func (r *Repository) revokeSession(ctx context.Context, id string, now time.Time
 
 func (r *Repository) profile(ctx context.Context, u *User) error {
 	var avatar bool
-	err := r.db.QueryRowContext(ctx, `SELECT account_number,display_name,avatar IS NOT NULL FROM profiles WHERE user_id=?`, u.ID).Scan(&u.AccountNumber, &u.DisplayName, &avatar)
+	// account_number is nullable at the schema level: the deletion tombstone
+	// profile deliberately carries NULL so it can never be looked up by number.
+	var account sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT account_number,display_name,avatar IS NOT NULL FROM profiles WHERE user_id=?`, u.ID).Scan(&account, &u.DisplayName, &avatar)
+	u.AccountNumber = account.String
 	if avatar {
 		u.AvatarURL = "/api/v1/profiles/" + u.ID + "/avatar"
 	}

@@ -2,6 +2,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	stdhttp "net/http"
 	"os"
@@ -76,6 +77,14 @@ func NewRouterWithServices(cfg config.Config, a *auth.AuthService, g *groups.Gro
 	mux.Handle("/", NewRouterWithAuth(cfg, a))
 	g.SetMemberObserver(hub.MembershipChanged)
 	g.SetNicknameObserver(hub.NicknameChanged)
+	a.SetUserDeletedHandler(func(ctx context.Context, deletion auth.UserDeletion) {
+		hub.NotifyUsers([]string{deletion.DeletedUser}, chat.Event{Type: "profile.changed", UserID: deletion.DeletedUser})
+		for _, id := range deletion.Conversations {
+			hub.NotifyConversation(id, chat.Event{Type: "conversation.changed"})
+		}
+		hub.NotifyUsers(deletion.Peers, chat.Event{Type: "contacts.changed"})
+		hub.NotifyUsers(deletion.Peers, chat.Event{Type: "conversation.changed"})
+	})
 	NewGroupHandlers(g).Register(mux, a)
 	(&SocialHandlers{Service: social.New(a, c, hub), Chat: c}).Register(mux, a)
 	ch := NewChatHandlers(c)

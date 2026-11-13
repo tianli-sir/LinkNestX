@@ -68,6 +68,7 @@ type AuthService struct {
 	refreshTTL     time.Duration
 	now            func() time.Time
 	profileChanged func(context.Context, string)
+	userDeleted    func(context.Context, UserDeletion)
 }
 
 func NewAuthService(source any, signingKey, refreshKey string) *AuthService {
