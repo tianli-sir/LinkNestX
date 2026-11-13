@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/linknestx/linknestx/server/internal/auth"
@@ -55,7 +57,7 @@ func (s *ChatService) AppendAttachment(ctx context.Context, actorID string, in A
 	m := Message{Kind: "text", ID: uuid.NewString(), GroupID: in.GroupID, SenderID: actorID, ClientMessageID: in.ClientMessageID, Body: &in.Name, CreatedAt: s.now().UTC(), FileID: &in.FileID, FileVersionID: &in.FileVersionID}
 	status := "available"
 	m.AttachmentStatus = &status
-	result, err := tx.ExecContext(ctx, `INSERT INTO messages(id,group_id,sender_id,client_message_id,body,created_at,file_id,file_version_id) VALUES(?,?,?,?,?,?,?,?)`, m.ID, m.GroupID, m.SenderID, m.ClientMessageID, in.Name, m.CreatedAt.Format(timestampLayout), in.FileID, in.FileVersionID)
+	result, err := tx.ExecContext(ctx, `INSERT INTO messages(id,group_id,sender_id,client_message_id,body,created_at,file_id,file_version_id,attachment_kind) VALUES(?,?,?,?,?,?,?,?,?)`, m.ID, m.GroupID, m.SenderID, m.ClientMessageID, in.Name, m.CreatedAt.Format(timestampLayout), in.FileID, in.FileVersionID, imageAttachmentKind(in.Name))
 	if err != nil {
 		return Message{}, err
 	}
@@ -107,4 +109,16 @@ func attachmentPublisherInTransaction(ctx context.Context, tx *sql.Tx, actorID, 
 		return err
 	}
 	return nil
+}
+
+// imageAttachmentKind marks picture attachments by immutable version name so
+// clients can render them inline. The preview route re-sniffs actual content,
+// so a forged extension merely degrades to the ordinary file card.
+func imageAttachmentKind(name string) any {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
+		return "image"
+	default:
+		return nil
+	}
 }

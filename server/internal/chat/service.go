@@ -48,6 +48,7 @@ type Message struct {
 	AttachmentName   *string    `json:"attachmentName,omitempty"`
 	AttachmentSize   *int64     `json:"attachmentSize,omitempty"`
 	AttachmentStatus *string    `json:"attachmentStatus,omitempty"`
+	AttachmentKind   *string    `json:"attachmentKind,omitempty"`
 }
 type MessagePage struct {
 	Messages   []Message `json:"messages"`
