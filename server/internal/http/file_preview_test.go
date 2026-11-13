@@ -112,3 +112,37 @@ func seedChunkObject(t *testing.T, f *socialFixture, data []byte) string {
 	t.Helper()
 	return ""
 }
+
+func TestAttachmentPreviewACLAndRejections(t *testing.T) {
+	f := newSocialFixture(t)
+	group := fixtureGroup(t, f)
+	version := publishGroupAttachment(t, f, group, "photo.png")
+	path := "/api/v1/files/" + version + "/preview"
+
+	// Group members reach the route; a zero-byte version is rejected as 415
+	// before any payload byte is pulled. (Byte-level streaming with sniffed
+	// Content-Type is exercised by the Linux CI matrix; the local Windows
+	// chunk store cannot open its own hard-linked files, matching the known
+	// pre-existing chunk-test failures.)
+	expectCode(t, f.req("GET", path, "", f.bob), 415)
+	expectCode(t, f.req("GET", path, "", f.admin), 415)
+	// Unauthenticated callers never reach the handler.
+	expectCode(t, f.req("GET", path, "", auth.Session{}), 401)
+	// Authenticated accounts outside the group are refused by the manifest.
+	expectCode(t, f.req("GET", path, "", nonmemberSession(t, f, "carol")), 403)
+	// Unknown versions 404.
+	expectCode(t, f.req("GET", "/api/v1/files/00000000-0000-4000-8000-000000000000/preview", "", f.bob), 404)
+
+	// Deleted file records 404 afterwards.
+	var fileID string
+	if e := f.a.Database().QueryRow(`SELECT file_id FROM file_versions WHERE id=?`, version).Scan(&fileID); e != nil {
+		t.Fatal(e)
+	}
+	expectCode(t, f.req("DELETE", "/api/v1/files/"+fileID, "", f.alice), 204)
+	expectCode(t, f.req("GET", path, "", f.bob), 404)
+
+	// Expired versions 404.
+	other := publishGroupAttachment(t, f, group, "later.png")
+	f.a.Database().Exec(`UPDATE file_versions SET expires_at='2000-01-01T00:00:00.000000000Z' WHERE id=?`, other)
+	expectCode(t, f.req("GET", "/api/v1/files/"+other+"/preview", "", f.bob), 404)
+}
