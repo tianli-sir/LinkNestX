@@ -11,6 +11,7 @@ func (h *AuthHandlers) registerAccounts(mux *http.ServeMux) {
 		"GET /api/v1/users":                             h.Directory,
 		"GET /api/v1/admin/users":                       h.AdminUsers,
 		"PATCH /api/v1/admin/users/{id}/account-number": h.UpdateAccountNumber,
+		"PATCH /api/v1/admin/users/{id}/username":       h.UpdateUsername,
 		"POST /api/v1/admin/users/{id}/disable":         h.DisableUser,
 		"POST /api/v1/admin/users/{id}/password":        h.ResetPassword,
 		"POST /api/v1/admin/users/{id}/revoke-sessions": h.RevokeUserSessions,
@@ -32,6 +33,21 @@ func (h *AuthHandlers) UpdateAccountNumber(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	user, err := h.Service.UpdateAccountNumber(r.Context(), r.PathValue("id"), in.AccountNumber)
+	if err != nil {
+		authError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+func (h *AuthHandlers) UpdateUsername(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Username string `json:"username"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		authError(w, err)
+		return
+	}
+	user, err := h.Service.UpdateUsername(r.Context(), r.PathValue("id"), in.Username)
 	if err != nil {
 		authError(w, err)
 		return
