@@ -5,7 +5,7 @@ import { EmptyState } from "../components/EmptyState";
 import { useDesktop, useDesktopEvent } from "../runtime/DesktopProvider";
 import { ChatView } from "./ChatView";
 import { FilesView } from "./FilesView";
-import { Avatar, displayName, ProfilePanel } from "./messaging/Profile";
+import { Avatar, ProfilePanel } from "./messaging/Profile";
 import { ErrorNotice, Loading, Field, segment, useResource } from "./shared";
 export interface Group {
   id: string;
@@ -158,13 +158,9 @@ function MemberProfileRow({ member, group, me, client, online, canManage, onRemo
     avatarUrl: member.hasAvatar ? `/api/v1/profiles/${member.userId}/avatar` : undefined,
   };
   async function direct() {
-    try {
-      const conversation = await client.request<{ id: string }>("POST", "/api/v1/conversations/direct", { userId: member.userId });
-      setOpen(false);
-      window.dispatchEvent(new CustomEvent("linknestx:open-conversation", { detail: { id: conversation.id } }));
-    } catch (e) {
-      setError(apiErrorMessage(e));
-    }
+    const conversation = await client.request<{ id: string }>("POST", "/api/v1/conversations/direct", { userId: member.userId });
+    setOpen(false);
+    window.dispatchEvent(new CustomEvent("linknestx:open-conversation", { detail: { id: conversation.id } }));
   }
   return <li><div className="ln-member-identity">{disabled ? <Avatar name={member.displayName}/> : <Avatar profile={person} onClick={() => setOpen(true)}/>}<div><strong>{member.displayName}{disabled ? "（已停用）" : ""}</strong>{!disabled && <p className="ln-muted">{member.accountNumber && /^\d+$/.test(member.accountNumber) ? `账号 ${member.accountNumber}` : "账号信息暂不可用"}</p>}<p className="ln-muted">{member.role === "owner" ? "群主" : "成员"}{online !== undefined ? ` · ${online ? "在线" : "离线"}` : ""}</p></div></div>{canManage && <button className="ln-text-button ln-danger" onClick={onRemove}>移除</button>}<ErrorNotice error={error}/>{!disabled && open && <ProfilePanel profile={person} me={me} client={client} group={{ id: group.id }} nickname={member.nickname ?? null} onClose={() => setOpen(false)} onDirect={direct} onChanged={() => {}}/>}</li>;
 }
