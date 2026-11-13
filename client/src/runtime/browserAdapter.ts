@@ -3,6 +3,8 @@ import type { ConnectionState } from '../components/AppShell';
 /** One socket per authenticated workspace. Credentials never appear in its URL. */
 export function createBrowserAdapter(): DesktopAdapter {
   const callbacks = new Map<string, Set<(payload: any) => void>>();
+  // Real foreground listeners live on window/document, outside the callback map.
+  const foregroundCleanups = new Map<(payload: any) => void, () => void>();
   let socket: WebSocket | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -46,8 +48,30 @@ export function createBrowserAdapter(): DesktopAdapter {
       if (!callbacks.has(name)) callbacks.set(name, new Set());
       callbacks.get(name)!.add(callback); connect();
       if (name === 'connection.changed') callback({ ...state });
+      if (name === 'window.foreground') {
+        // Events are the live signal; document.hasFocus() only seeds the state.
+        let focused = document.hasFocus();
+        const report = (next?: boolean) => {
+          if (typeof next === 'boolean') focused = next;
+          callback(document.visibilityState === 'visible' && focused);
+        };
+        const onFocus = () => report(true);
+        const onBlur = () => report(false);
+        const onVisibility = () => report();
+        report();
+        window.addEventListener('focus', onFocus);
+        window.addEventListener('blur', onBlur);
+        document.addEventListener('visibilitychange', onVisibility);
+        foregroundCleanups.set(callback, () => {
+          window.removeEventListener('focus', onFocus);
+          window.removeEventListener('blur', onBlur);
+          document.removeEventListener('visibilitychange', onVisibility);
+        });
+      }
       return () => {
         callbacks.get(name)?.delete(callback);
+        foregroundCleanups.get(callback)?.();
+        foregroundCleanups.delete(callback);
         if ([...callbacks.values()].every(set => !set.size)) {
           closed = true; clearTimers(); const previous = socket; socket = undefined; previous?.close(); state = { status: 'disconnected' };
         }

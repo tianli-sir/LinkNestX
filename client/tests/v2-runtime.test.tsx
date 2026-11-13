@@ -82,3 +82,18 @@ test('rest errors expose HTTP status for both transports',async()=>{
 test('browser socket connects to the authenticated API namespace without credentials in URL',async()=>{
  const urls:string[]=[];vi.stubGlobal('WebSocket',class{constructor(url:string){urls.push(url)}close(){}});const {createBrowserAdapter}=await import('../src/runtime/browserAdapter');const adapter=createBrowserAdapter();const remove=await adapter.listen('server.event',()=>{});expect(new URL(urls[0]).pathname).toBe('/api/v1/ws');expect(new URL(urls[0]).search).toBe('');remove();vi.unstubAllGlobals();
 });
+test('browser adapter reports real window foreground state',async()=>{
+ const {createBrowserAdapter}=await import('../src/runtime/browserAdapter');
+ vi.stubGlobal('WebSocket',class{close(){}});
+ const adapter=createBrowserAdapter();
+ const states:boolean[]=[];
+ const remove=await adapter.listen('window.foreground',payload=>states.push(payload));
+ window.dispatchEvent(new Event('blur'));
+ window.dispatchEvent(new Event('focus'));
+ document.dispatchEvent(new Event('visibilitychange'));
+ expect(states.length).toBeGreaterThan(1);
+ expect(states[states.length-1]).toBe(true);
+ remove();
+ window.dispatchEvent(new Event('blur'));
+ vi.unstubAllGlobals();
+});
