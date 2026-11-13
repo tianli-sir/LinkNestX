@@ -341,3 +341,20 @@ func TestMigrationFailureRestoresForeignKeysAndRollsBack(t *testing.T) {
 		t.Fatal("migration silently erased prior data")
 	}
 }
+
+func TestAttachmentKindColumnMigration(t *testing.T) {
+	conn, err := Open(filepath.Join(t.TempDir(), "attachment-kind.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for i := 0; i < 2; i++ {
+		if err := ApplyMigrations(context.Background(), conn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	if err := conn.QueryRow(`SELECT count(*) FROM pragma_table_info('messages') WHERE name='attachment_kind' AND "notnull"=0`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("nullable attachment_kind column missing: n=%d err=%v", n, err)
+	}
+}
