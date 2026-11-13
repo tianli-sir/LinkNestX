@@ -92,7 +92,7 @@ test('web build loads the thumbnail straight from the server route', async () =>
     if (path.endsWith('/read')) return { messageIds: [] };
     return null;
   });
-  render(<App transport={{ request, login: async () => ({ id: 'session', user: me, deviceId: 'd', expiresAt: '' }), logout: async () => {} }} desktop={{ kind: 'browser', invoke: async () => undefined, listen: async () => () => {} }} />);
+  render(<App transport={{ request, login: async () => ({ id: 'session', user: me, deviceId: 'd', expiresAt: '' }), logout: async () => {} }} desktop={{ kind: 'browser', invoke: (async () => null) as never, listen: async () => () => {} }} />);
   fireEvent.change(screen.getByLabelText('账号'), { target: { value: me.accountNumber } });
   fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'pw' } });
   fireEvent.click(screen.getByRole('button', { name: '登录' }));

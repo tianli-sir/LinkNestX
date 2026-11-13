@@ -112,3 +112,16 @@ it('creates an account with an optional chosen number and edits it through the a
  expect(await screen.findByText('7654321')).toBeVisible();
  expect(h.request).toHaveBeenCalledWith('PATCH','/api/v1/admin/users/employee-id/account-number',{accountNumber:'7654321'});
 });
+
+it('renames an account through the admin username endpoint',async()=>{
+ const h=setup('admin','admin',async(method,path)=>{
+  if(method==='PATCH'&&path.endsWith('/username'))return {...employee,username:'lin-2',roles:['admin']};
+  return undefined;
+ });
+ await screen.findByText('627491');
+ fireEvent.click(screen.getByRole('button',{name:'改用户名'}));
+ fireEvent.change(screen.getByLabelText('新的用户名'),{target:{value:'lin-2'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存用户名'}));
+ await screen.findByText('用户名已更新。');
+ expect(h.request).toHaveBeenCalledWith('PATCH','/api/v1/admin/users/employee-id/username',{username:'lin-2'});
+});
