@@ -68,9 +68,94 @@ pub fn open(value: &str) -> Result<()> {
     Err(TransferError::new("无法打开外部链接"))
 }
 
+// Local-file launching is deliberately separate from checked_url, which must
+// keep rejecting file paths. The only callers resolve absolute paths from the
+// transfer task library, so the path itself is the whitelist.
+pub fn open_local_path(path: &str) -> Result<()> {
+    let target = std::path::Path::new(path);
+    if path.is_empty() || !target.is_absolute() {
+        return Err(TransferError::new("文件路径无效"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg(target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows::{
+            core::PCWSTR,
+            Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        };
+        let verb: Vec<u16> = "open\0".encode_utf16().collect();
+        let destination: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(verb.as_ptr()),
+                PCWSTR(destination.as_ptr()),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            )
+        };
+        if result.0 as isize > 32 {
+            return Ok(());
+        }
+    }
+    Err(TransferError::new("无法打开文件"))
+}
+
+pub fn reveal_local_path(path: &str) -> Result<()> {
+    let target = std::path::Path::new(path);
+    if path.is_empty() || !target.is_absolute() {
+        return Err(TransferError::new("文件路径无效"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("/usr/bin/open")
+            .arg("-R")
+            .arg(target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let status = std::process::Command::new("explorer.exe")
+            .arg(format!("/select,{}", target.display()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+    Err(TransferError::new("无法打开文件所在文件夹"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_launch_requires_absolute_paths() {
+        assert!(open_local_path("readme.txt").is_err());
+        assert!(reveal_local_path("readme.txt").is_err());
+        assert!(open_local_path("").is_err());
+        assert!(reveal_local_path("").is_err());
+    }
     #[test]
     fn external_links_cannot_open_programs_files_or_credential_urls() {
         for value in [
