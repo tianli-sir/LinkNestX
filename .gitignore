@@ -11,7 +11,8 @@ client/.vite/
 *.tsbuildinfo
 
 # Rust / Tauri
-client/src-tauri/target/
+client/src-tauri/target*
+client/src-tauri/target-local/
 client/src-tauri/gen/
 
 # Local environment and editor files
