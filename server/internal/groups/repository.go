@@ -93,7 +93,7 @@ func (r *Repository) list(ctx context.Context, actorID string) ([]Group, error) 
 	return result, rows.Err()
 }
 func (r *Repository) members(ctx context.Context, groupID string) ([]Member, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT user_id,role,joined_at FROM group_members WHERE group_id=? ORDER BY joined_at,user_id`, groupID)
+	rows, err := r.db.QueryContext(ctx, `SELECT gm.user_id,gm.role,gm.joined_at,gm.nickname,COALESCE(NULLIF(gm.nickname,''),NULLIF(p.display_name,''),u.username),p.account_number,p.avatar IS NOT NULL,u.disabled=1 FROM group_members gm JOIN users u ON u.id=gm.user_id JOIN profiles p ON p.user_id=gm.user_id WHERE gm.group_id=? ORDER BY gm.joined_at,gm.user_id`, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -102,9 +102,15 @@ func (r *Repository) members(ctx context.Context, groupID string) ([]Member, err
 	for rows.Next() {
 		var m Member
 		var at string
-		if err := rows.Scan(&m.UserID, &m.Role, &at); err != nil {
+		var nickname, account sql.NullString
+		if err := rows.Scan(&m.UserID, &m.Role, &at, &nickname, &m.DisplayName, &account, &m.HasAvatar, &m.Disabled); err != nil {
 			return nil, err
 		}
+		if nickname.Valid {
+			value := nickname.String
+			m.Nickname = &value
+		}
+		m.AccountNumber = account.String
 		m.JoinedAt, err = time.Parse(time.RFC3339Nano, at)
 		if err != nil {
 			return nil, err

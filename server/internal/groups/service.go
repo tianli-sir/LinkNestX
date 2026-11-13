@@ -31,9 +31,14 @@ type CreateInput struct {
 	OwnerID string `json:"ownerId,omitempty"`
 }
 type Member struct {
-	UserID   string    `json:"userId"`
-	Role     string    `json:"role"`
-	JoinedAt time.Time `json:"joinedAt"`
+	UserID        string     `json:"userId"`
+	Role          string     `json:"role"`
+	JoinedAt      time.Time  `json:"joinedAt"`
+	Nickname      *string    `json:"nickname"`
+	DisplayName   string     `json:"displayName"`
+	AccountNumber string     `json:"accountNumber"`
+	HasAvatar     bool       `json:"hasAvatar"`
+	Disabled      bool       `json:"disabled"`
 }
 type GroupService struct {
 	repo           *Repository
