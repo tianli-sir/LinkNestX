@@ -79,6 +79,21 @@ async function invoke(command,input){
     catch(error){await host.request('cancel_audit_export',{exportId:args.exportId});throw error;}
     return host.request('export_audit',{...args,scope,destination:result.canceled?null:result.filePath});
   }
+  if(command==='open_downloaded_file'||command==='reveal_downloaded_file'){
+    // native host 反查路径并做存在性检查；这里仅执行系统打开动作。
+    // 路径不回流渲染层（invoke 返回 null）。
+    const result=await host.request(command,args);
+    if(command==='open_downloaded_file'){
+      const failure=await shell.openPath(result.path);
+      if(failure)throw new Error(`无法打开文件：${failure}`);
+    }else{
+      shell.showItemInFolder(result.path);
+    }
+    return null;
+  }
+  if(command==='file_attachment_preview'||command==='file_attachment_thumb'||command==='check_downloaded_files'){
+    return host.request(command,args);
+  }
   if(command==='set_transfer_preferences'){
     const result=await host.request(command,args);
     if(process.platform==='win32')app.setLoginItemSettings({name:loginItemName,openAtLogin:!!args.preferences.autostart,path:process.execPath,args:['--hidden']});
