@@ -33,6 +33,22 @@ test('native foreground state prevents receipts even if the webview document rep
  let observe:IntersectionObserverCallback=()=>{};const nodes:Element[]=[];vi.spyOn(document,'hasFocus').mockReturnValue(true);vi.stubGlobal('IntersectionObserver',class{constructor(callback:IntersectionObserverCallback){observe=callback}observe(node:Element){nodes.push(node)}disconnect(){}});
  const h=setup({messages:[message('m1')]});await login();fireEvent.click(screen.getByRole('button',{name:'周予'}));await screen.findByText('消息 m1');await act(async()=>h.listeners.get('window.foreground')?.(false));vi.useFakeTimers();await act(async()=>{observe(nodes.map(target=>({target,isIntersecting:true,intersectionRatio:1})) as IntersectionObserverEntry[],{} as IntersectionObserver);await vi.advanceTimersByTimeAsync(1000)});expect(h.request.mock.calls.some(([method,path])=>method==='POST'&&path.endsWith('/read'))).toBe(false);vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();
 });
+test('reads proceed when native foreground is true even if the webview document reports no focus',async()=>{
+ let observe:IntersectionObserverCallback=()=>{};const nodes:Element[]=[];vi.spyOn(document,'hasFocus').mockReturnValue(false);vi.stubGlobal('IntersectionObserver',class{constructor(callback:IntersectionObserverCallback){observe=callback}observe(node:Element){nodes.push(node)}disconnect(){}});
+ const h=setup({messages:[message('m1')]});await login();fireEvent.click(screen.getByRole('button',{name:'周予'}));await screen.findByText('消息 m1');await act(async()=>h.listeners.get('window.foreground')?.(true));vi.useFakeTimers();await act(async()=>{observe(nodes.map(target=>({target,isIntersecting:true,intersectionRatio:1})) as IntersectionObserverEntry[],{} as IntersectionObserver);await vi.advanceTimersByTimeAsync(1000)});expect(h.request.mock.calls.some(([method,path])=>method==='POST'&&path.endsWith('/read'))).toBe(true);vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();
+});
+test('pointerdown on the conversation re-evaluates the read gate after a missed visibility change',async()=>{
+ let observe:IntersectionObserverCallback=()=>{};const nodes:Element[]=[];vi.spyOn(document,'hasFocus').mockReturnValue(true);vi.stubGlobal('IntersectionObserver',class{constructor(callback:IntersectionObserverCallback){observe=callback}observe(node:Element){nodes.push(node)}disconnect(){}});
+ Object.defineProperty(document,'visibilityState',{get:()=>'hidden',configurable:true});
+ const h=setup({messages:[message('m1')]});await login();fireEvent.click(screen.getByRole('button',{name:'周予'}));await screen.findByText('消息 m1');vi.useFakeTimers();
+ await act(async()=>{observe(nodes.map(target=>({target,isIntersecting:true,intersectionRatio:1})) as IntersectionObserverEntry[],{} as IntersectionObserver);await vi.advanceTimersByTimeAsync(1000)}); // 门控因 hidden 关闭：无 read
+ expect(h.request.mock.calls.some(([method,path])=>method==='POST'&&path.endsWith('/read'))).toBe(false);
+ Object.defineProperty(document,'visibilityState',{get:()=>'visible',configurable:true}); // 模拟 missed visibilitychange
+ fireEvent.pointerDown(screen.getByText('消息 m1'));
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000)});
+ expect(h.request.mock.calls.some(([method,path])=>method==='POST'&&path.endsWith('/read'))).toBe(true);
+ delete (document as any).visibilityState;vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();
+});
 test('an open profile updates from waiting to direct messaging when the friend acceptance event arrives',async()=>{
  const h=setup();await login();fireEvent.click(screen.getByRole('button',{name:'联系人'}));fireEvent.change(await screen.findByLabelText('通过数字账号添加好友'),{target:{value:peer.accountNumber}});fireEvent.click(screen.getByRole('button',{name:'查找'}));fireEvent.click(await screen.findByRole('button',{name:'查看资料'}));fireEvent.click(await screen.findByRole('button',{name:'添加好友'}));await screen.findByRole('button',{name:'等待验证'});h.approve();await act(async()=>h.listeners.get('server.event')?.({type:'contacts.changed'}));expect(await within(screen.getByRole('dialog',{name:'个人资料'})).findByRole('button',{name:'发送消息'})).toBeEnabled();
 });
