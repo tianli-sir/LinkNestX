@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AuthProvider, useAuth, type User } from '../src/auth';
 import { type NativeTransport } from '../src/api/rest';
@@ -124,4 +124,28 @@ it('renames an account through the admin username endpoint',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'保存用户名'}));
  await screen.findByText('用户名已更新。');
  expect(h.request).toHaveBeenCalledWith('PATCH','/api/v1/admin/users/employee-id/username',{username:'lin-2'});
+});
+
+it('hides delete for admins and requires the typed username otherwise',async()=>{
+ const boss={...employee,id:'boss-id',username:'boss',roles:['admin','user']};
+ const h=setup('admin','admin',async(method,path)=>{
+  if(path==='/api/v1/admin/users')return [boss,employee];
+  if(method==='POST'&&path==='/api/v1/admin/users/employee-id/delete')return {};
+  return undefined;
+ });
+ await screen.findByText('boss');
+ // boss（管理员）行不出现删除入口
+ const bossRow=screen.getByText('boss').closest('tr')!;
+ expect(bossRow.textContent).not.toContain('删除账号');
+ // 普通行出现，且确认必须输入用户名
+ fireEvent.click(within(screen.getByText('lin').closest('tr')!).getByRole('button',{name:'删除账号'}));
+ await screen.findByText(/确认将永久删除/);
+ const submit=screen.getByRole('button',{name:'确认删除账号'});
+ expect(submit).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('输入 lin 确认删除'),{target:{value:'wrong'}});
+ expect(submit).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('输入 lin 确认删除'),{target:{value:'lin'}});
+ fireEvent.click(submit);
+ await waitFor(()=>expect(h.request).toHaveBeenCalledWith('POST','/api/v1/admin/users/employee-id/delete',{}));
+ await screen.findByText('账号已删除。');
 });
