@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"container/list"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"image"
 	"image/png"
+	"runtime"
 	"testing"
 
 	"github.com/linknestx/linknestx/server/internal/auth"
@@ -218,5 +221,95 @@ func TestThumbLRUHitRefreshOverwriteAndEviction(t *testing.T) {
 	}
 	if cache.len() != 2 {
 		t.Fatalf("len after overwrite=%d", cache.len())
+	}
+}
+
+// TestAttachmentPreviewStreamsRealBytes covers the byte-stream paths that this
+// Windows host cannot exercise locally: the chunk store's strict 0600 mode
+// guard rejects every locally written chunk, so content-bearing uploads only
+// run where Unix permissions work (CI's Linux runners).
+func TestAttachmentPreviewStreamsRealBytes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chunk store mode guard rejects local writes on Windows; covered on Linux CI")
+	}
+	f := newSocialFixture(t)
+	group := fixtureGroup(t, f)
+	ctx, e := f.a.AuthenticateContext(context.Background(), f.alice.AccessToken)
+	if e != nil {
+		t.Fatal(e)
+	}
+	// A real 3x2 PNG whose magic bytes span multiple 2-byte chunks.
+	png := func() []byte {
+		img := image.NewRGBA(image.Rect(0, 0, 3, 2))
+		for i := range img.Pix {
+			img.Pix[i] = byte(i)
+		}
+		var out bytes.Buffer
+		if e := png.Encode(&out, img); e != nil {
+			t.Fatal(e)
+		}
+		return out.Bytes()
+	}()
+	upload := func(name string, data []byte) string {
+		t.Helper()
+		sum := sha256.Sum256(data)
+		in := files.StartUploadInput{GroupID: group, Name: name, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), ChunkSize: 2}
+		for start := 0; start < len(data); start += 2 {
+			end := min(start+2, len(data))
+			digest := sha256.Sum256(data[start:end])
+			in.Chunks = append(in.Chunks, files.Chunk{Index: len(in.Chunks), Hash: hex.EncodeToString(digest[:]), Size: int64(end - start)})
+		}
+		u, e := f.fs.StartUpload(ctx, f.alice.User.ID, in)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, chunk := range in.Chunks {
+			start := chunk.Index * 2
+			if e = f.fs.PutChunk(ctx, f.alice.User.ID, u.UploadID, chunk.Index, bytes.NewReader(data[start:start+int(chunk.Size)])); e != nil {
+				t.Fatal(e)
+			}
+		}
+		v, e := f.fs.CompleteUpload(ctx, f.alice.User.ID, u.UploadID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v.VersionID
+	}
+	// Preview returns the exact bytes with a sniffed Content-Type.
+	version := upload("photo.png", png)
+	w := f.req("GET", "/api/v1/files/"+version+"/preview", "", f.bob)
+	expectCode(t, w, 200)
+	if got := w.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("preview content-type = %q", got)
+	}
+	if !bytes.Equal(w.Body.Bytes(), png) {
+		t.Fatalf("preview body differs: %d bytes", w.Body.Len())
+	}
+	// A renamed non-picture is rejected as 415 with zero bytes written.
+	fake := upload("伪装.png", []byte("this is definitely not a picture payload"))
+	expectCode(t, f.req("GET", "/api/v1/files/"+fake+"/preview", "", f.bob), 415)
+	// Thumb decodes, scales and re-encodes as PNG through the real route.
+	w = f.req("GET", "/api/v1/files/"+version+"/thumb", "", f.bob)
+	expectCode(t, w, 200)
+	if got := w.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("thumb content-type = %q", got)
+	}
+	decoded, format, e := image.Decode(bytes.NewReader(w.Body.Bytes()))
+	if e != nil || format != "png" {
+		t.Fatalf("thumb decode: format=%q err=%v", format, e)
+	}
+	if bounds := decoded.Bounds(); bounds.Dx() > 480 || bounds.Dy() > 480 {
+		t.Fatalf("thumb bounds = %v, exceeds 480 edge", bounds)
+	}
+	// Second hit serves the cached entry — still through the ACL recheck.
+	attachmentThumbs.mu.Lock()
+	attachmentThumbs.items = map[string]*list.Element{}
+	attachmentThumbs.order = list.New()
+	attachmentThumbs.limit = 256
+	attachmentThumbs.mu.Unlock()
+	w = f.req("GET", "/api/v1/files/"+version+"/thumb", "", f.bob)
+	expectCode(t, w, 200)
+	if attachmentThumbs.len() != 1 {
+		t.Fatalf("cache len = %d, want 1", attachmentThumbs.len())
 	}
 }

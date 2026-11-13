@@ -131,25 +131,26 @@ func (c *thumbLRU) len() int {
 
 const (
 	thumbMaxEdge        = 480
-	thumbMaxPixels      = 800_000_000
+	thumbMaxPixels      = 80_000_000
 	thumbMaxSourceBytes = 64 << 20
 )
 
 // Thumb serves a PNG thumbnail with the longest edge capped at 480. Sources
 // the standard library cannot decode (including webp), oversized payloads and
 // absurd pixel counts fall back to a 302 so the client scales the original in
-// CSS. Access checks mirror Preview; cache hits still require a valid session
-// because RequireAuth wraps the route.
+// CSS. Access checks mirror Preview; cache hits re-run the availability check
+// so deleted, expired or revoked files stop serving immediately instead of
+// serving until LRU eviction.
 func (h *FileHandlers) Thumb(w http.ResponseWriter, r *http.Request) {
 	actor := UserIDFromContext(r.Context())
 	version := r.PathValue("versionID")
-	if cached, ok := attachmentThumbs.get(version); ok {
-		serveThumb(w, cached)
-		return
-	}
 	m, e := h.Service.Manifest(r.Context(), actor, version)
 	if e != nil {
 		fileError(w, e)
+		return
+	}
+	if cached, ok := attachmentThumbs.get(version); ok {
+		serveThumb(w, cached)
 		return
 	}
 	if m.Size == 0 || m.Size > thumbMaxSourceBytes || len(m.Chunks) == 0 {
