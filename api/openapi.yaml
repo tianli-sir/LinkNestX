@@ -704,6 +704,44 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/EmptyObject' }
       responses:
         '204': { description: All account sessions revoked; self-revocation also succeeds and logs out the current client }
+  /api/v1/admin/users/{id}/username:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    patch:
+      operationId: adminUpdateUsername
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username]
+              properties: { username: { type: string, minLength: 1, maxLength: 256 } }
+      responses:
+        '200':
+          description: Renamed account; sessions stay valid and profile.changed reaches contacts
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/User' } }
+        '400': { description: Empty, oversized or invalid UTF-8 username }
+        '409': { description: Case-insensitive duplicate or account-number collision }
+  /api/v1/admin/users/{id}/delete:
+    parameters: [{ $ref: '#/components/parameters/AccountOrDeviceID' }]
+    post:
+      operationId: adminDeleteUser
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/EmptyObject' }
+      description: >-
+        Hard-deletes a non-administrator account. History is anonymised onto a
+        shared disabled tombstone account, groups owned by the target dissolve
+        (file and version records are retained with tombstone attribution),
+        friendships and direct conversations are removed for both sides, and
+        the users row disappears with its sessions and devices.
+      responses:
+        '204': { description: Account deleted; conversation.changed and contacts.changed are broadcast }
+        '400': { description: Target is the tombstone account }
+        '403': { description: Current administrator required }
+        '409': { description: Cannot delete yourself or another administrator }
   /api/v1/me/devices:
     get:
       operationId: ownDevices
@@ -1198,6 +1236,40 @@ paths:
         '401': { description: Session missing, expired or revoked }
         '403': { description: Permission, origin, CSRF or browser capability denied }
         '404': { description: Resource unavailable }
+  /api/v1/files/{versionID}/preview:
+    parameters:
+      - { name: versionID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: fileAttachmentPreview
+      summary: Stream original attachment image bytes under the download ACL
+      security: [{ bearerAuth: [] }]
+      description: >-
+        Chunked stream without a size cap. Content is sniffed with
+        http.DetectContentType and restricted to png/jpeg/gif/webp; every
+        bounded write rechecks the current session and file visibility.
+        Responses carry no-store, nosniff and a sandbox CSP.
+      responses:
+        '200': { description: Image bytes; Content-Type reflects the sniffed type }
+        '403': { description: Caller cannot see this version }
+        '404': { description: Version unknown, deleted or expired }
+        '415': { description: Sniffed content is not a supported image type }
+  /api/v1/files/{versionID}/thumb:
+    parameters:
+      - { name: versionID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: fileAttachmentThumb
+      summary: Cached PNG thumbnail (longest edge 480) for an attachment image
+      security: [{ bearerAuth: [] }]
+      description: >-
+        In-process LRU of 256 entries keyed by version. Sources the standard
+        library cannot decode (including webp), oversized payloads and images
+        above 800 megapixels redirect to the preview route so the client can
+        scale the original in CSS.
+      responses:
+        '200': { description: PNG thumbnail bytes }
+        '302': { description: Fallback redirect to /api/v1/files/{versionID}/preview }
+        '403': { description: Caller cannot see this version }
+        '404': { description: Version unknown, deleted or expired }
   /api/v1/web/files/{versionID}/download:
     parameters:
       - { in: path, name: versionID, required: true, schema: { type: string, format: uuid } }
@@ -1493,6 +1565,7 @@ components:
         attachmentName: { type: string, description: Original immutable version filename; absent after message retention expiry }
         attachmentSize: { type: integer, minimum: 0, description: Original immutable version size }
         attachmentStatus: { type: string, enum: [available, deleted, expired, unlisted] }
+        attachmentKind: { type: string, enum: [image], description: Present when the immutable version name marks a picture; clients render it inline and re-verify content through the preview route }
     MessagePage:
       type: object
       required: [messages, nextCursor, hasMore]
