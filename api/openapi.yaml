@@ -163,6 +163,20 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Group owner or administrator required }
         '404': { description: Group does not exist }
+    patch:
+      operationId: setGroupMemberNickname
+      summary: Set the caller's own group-scoped display name (self only)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/GroupNicknameRequest' } }
+      responses:
+        '204': { description: Nickname stored; an empty string clears the override }
+        '400': { description: Nickname longer than 80 runes or contains control characters }
+        '401': { description: Authentication required }
+        '403': { description: Path userId is not the caller, the conversation is direct, or the caller is not a member }
+        '404': { description: Group or membership does not exist }
   /api/v1/groups/{groupId}/messages:
     parameters:
       - { name: groupId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1432,6 +1446,12 @@ components:
       properties:
         userId: { type: string, format: uuid }
         role: { type: string, enum: [owner, member] }
+    GroupNicknameRequest:
+      type: object
+      additionalProperties: false
+      required: [nickname]
+      properties:
+        nickname: { type: string, maxLength: 80, description: Empty string clears the group nickname }
     GroupMember:
       type: object
       required: [userId, role, joinedAt]
@@ -1439,6 +1459,11 @@ components:
         userId: { type: string, format: uuid }
         role: { type: string, enum: [owner, member] }
         joinedAt: { type: string, format: date-time }
+        nickname: { type: string, nullable: true, description: Group-scoped display name; null falls back to the profile name }
+        displayName: { type: string, description: Effective name inside this group (nickname ?? profile display name ?? username) }
+        accountNumber: { type: string }
+        hasAvatar: { type: boolean }
+        disabled: { type: boolean }
     AppendMessageRequest:
       type: object
       additionalProperties: false
