@@ -33,6 +33,7 @@ func (h *FileHandlers) Register(mux *http.ServeMux, a *auth.AuthService) {
 		"GET /api/v1/file-versions/{versionID}/manifest":  h.Manifest,
 		"POST /api/v1/files/{fileID}/promote":             h.Promote,
 		"GET /api/v1/files/{versionID}/preview":           h.Preview,
+		"GET /api/v1/files/{versionID}/thumb":             h.Thumb,
 		"DELETE /api/v1/files/{fileID}":                   h.Delete,
 	}
 	for path, handler := range routes {

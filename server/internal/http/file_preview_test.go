@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"container/list"
 	"context"
 	"encoding/json"
 	"image"
@@ -92,6 +93,8 @@ func TestAttachmentKindMarksImageUploads(t *testing.T) {
 }
 
 // imageBytes is a stable 2x2 PNG used by the streaming suites.
+// imageBytes is a stable 2x2 PNG; used by future payload-bearing suites where
+// the environment can serve chunk bytes (CI Linux matrix).
 func imageBytes(t *testing.T) []byte {
 	t.Helper()
 	var encoded bytes.Buffer
@@ -99,18 +102,6 @@ func imageBytes(t *testing.T) []byte {
 		t.Fatal(e)
 	}
 	return encoded.Bytes()
-}
-
-// seedVersionRows publishes a zero-byte version and then replaces its declared
-// shape and chunk rows so the preview/thumb routes see chosen bytes without
-// touching the chunk store (whose 0600 private-file guard is untestable on
-// Windows, where chmod cannot produce that mode). Manifest reads chunk rows
-// from the database, while the documentImageReader pulls payload bytes from
-// the store — so streaming suites with real payloads must inject store bytes
-// via seedChunkObject below.
-func seedChunkObject(t *testing.T, f *socialFixture, data []byte) string {
-	t.Helper()
-	return ""
 }
 
 func TestAttachmentPreviewACLAndRejections(t *testing.T) {
@@ -145,4 +136,87 @@ func TestAttachmentPreviewACLAndRejections(t *testing.T) {
 	other := publishGroupAttachment(t, f, group, "later.png")
 	f.a.Database().Exec(`UPDATE file_versions SET expires_at='2000-01-01T00:00:00.000000000Z' WHERE id=?`, other)
 	expectCode(t, f.req("GET", "/api/v1/files/"+other+"/preview", "", f.bob), 404)
+}
+
+func TestAttachmentThumbRoutesGateAndFallBack(t *testing.T) {
+	f := newSocialFixture(t)
+	group := fixtureGroup(t, f)
+	// Zero-byte version: no payload to decode, so the route must fall back to
+	// the preview redirect instead of attempting a decode.
+	version := publishGroupAttachment(t, f, group, "small.png")
+	path := "/api/v1/files/" + version + "/thumb"
+	w := f.req("GET", path, "", f.bob)
+	expectCode(t, w, 302)
+	if location := w.Header().Get("Location"); location != "/api/v1/files/"+version+"/preview" {
+		t.Fatalf("redirect location=%q", location)
+	}
+	// Cache must not retain the fallback.
+	if attachmentThumbs.len() != 0 {
+		t.Fatalf("thumb cache retained fallback: len=%d", attachmentThumbs.len())
+	}
+	// ACL checks precede the fallback: non-members and anonymous callers are
+	// rejected before any redirect.
+	expectCode(t, f.req("GET", path, "", nonmemberSession(t, f, "dave")), 403)
+	expectCode(t, f.req("GET", path, "", auth.Session{}), 401)
+	expectCode(t, f.req("GET", "/api/v1/files/00000000-0000-4000-8000-000000000000/thumb", "", f.bob), 404)
+	// Declared size above the source cap falls back too.
+	huge := publishGroupAttachment(t, f, group, "huge.png")
+	f.a.Database().Exec(`UPDATE file_versions SET size=? WHERE id=?`, thumbMaxSourceBytes+1, huge)
+	w4 := f.req("GET", "/api/v1/files/"+huge+"/thumb", "", f.bob)
+	expectCode(t, w4, 302)
+}
+
+// TestScaleToThumbnailCoversShrinkAndNoUpscale is the in-memory counterpart of
+// the plan's byte-level thumb suite: the local Windows chunk store cannot
+// serve payload bytes (its 0600 private-file guard rejects every file Windows
+// chmod produces), so decode-scale-encode and cache eviction are verified
+// directly against the pure functions the route composes.
+func TestScaleToThumbnailCoversShrinkAndNoUpscale(t *testing.T) {
+	// 960x480 shrinks to the 480 edge cap.
+	small := scaleToThumbnail(image.NewRGBA(image.Rect(0, 0, 960, 480)))
+	if len(small) == 0 {
+		t.Fatal("960x480 produced no thumbnail")
+	}
+	decoded, format, e := image.Decode(bytes.NewReader(small))
+	if e != nil || format != "png" || decoded.Bounds().Dx() != 480 || decoded.Bounds().Dy() != 240 {
+		t.Fatalf("thumb decode=%v format=%s bounds=%v", e, format, decoded.Bounds())
+	}
+	// Tiny images are never upscaled.
+	tiny := scaleToThumbnail(image.NewRGBA(image.Rect(0, 0, 2, 2)))
+	decoded, _, e = image.Decode(bytes.NewReader(tiny))
+	if e != nil || decoded.Bounds().Dx() != 2 || decoded.Bounds().Dy() != 2 {
+		t.Fatalf("tiny thumb decode=%v bounds=%v", e, decoded.Bounds())
+	}
+	// Degenerate bounds are refused rather than panicking.
+	if got := scaleToThumbnail(image.NewRGBA(image.Rect(0, 0, 0, 0))); got != nil {
+		t.Fatal("degenerate source produced output")
+	}
+}
+
+func TestThumbLRUHitRefreshOverwriteAndEviction(t *testing.T) {
+	cache := &thumbLRU{order: list.New(), items: map[string]*list.Element{}, limit: 2}
+	cache.put("a", []byte{1})
+	cache.put("b", []byte{2})
+	if value, ok := cache.get("a"); !ok || !bytes.Equal(value, []byte{1}) {
+		t.Fatalf("get a=%v ok=%v", value, ok)
+	}
+	// Refreshing "a" makes "b" the least-recently-used entry.
+	cache.put("c", []byte{3})
+	if cache.len() != 2 {
+		t.Fatalf("len=%d, want 2", cache.len())
+	}
+	if _, ok := cache.get("b"); ok {
+		t.Fatal("b survived eviction")
+	}
+	if _, ok := cache.get("a"); !ok {
+		t.Fatal("a was evicted despite recent use")
+	}
+	// Overwriting an existing key replaces content without eviction.
+	cache.put("c", []byte{9})
+	if value, _ := cache.get("c"); !bytes.Equal(value, []byte{9}) {
+		t.Fatal("overwrite lost")
+	}
+	if cache.len() != 2 {
+		t.Fatalf("len after overwrite=%d", cache.len())
+	}
 }
