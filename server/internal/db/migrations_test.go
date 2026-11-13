@@ -300,6 +300,23 @@ func TestDocumentMigrationPreservesFileChildrenAndEnforcesOwnership(t *testing.T
 	}
 }
 
+func TestGroupNicknameColumnMigration(t *testing.T) {
+	conn, err := Open(filepath.Join(t.TempDir(), "nickname.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for i := 0; i < 2; i++ {
+		if err := ApplyMigrations(context.Background(), conn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	if err := conn.QueryRow(`SELECT count(*) FROM pragma_table_info('group_members') WHERE name='nickname' AND "notnull"=0`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("nullable nickname column missing: n=%d err=%v", n, err)
+	}
+}
+
 func TestMigrationFailureRestoresForeignKeysAndRollsBack(t *testing.T) {
 	conn, e := Open(filepath.Join(t.TempDir(), "invalid.db"))
 	if e != nil {
