@@ -27,3 +27,15 @@ test('native credentials never cross the renderer boundary',()=>{
   assert.equal(session.accessToken,undefined);assert.equal(session.refreshToken,undefined);
   assert.equal(session.user.id,'u');
 });
+test('image preview and file launch commands accept only identifiers', () => {
+  for (const command of ['file_attachment_preview','file_attachment_thumb']) assert.doesNotThrow(()=>validateRequest(command,{versionId:'version'}));
+  assert.doesNotThrow(()=>validateRequest('open_downloaded_file',{taskId:'task'}));
+  assert.doesNotThrow(()=>validateRequest('reveal_downloaded_file',{taskId:'task'}));
+  assert.doesNotThrow(()=>validateRequest('check_downloaded_files',{taskIds:['a','b']}));
+  // 渲染层永远不能携带路径：额外参数、路径参数、错误的 taskIds 类型全部拒绝
+  assert.throws(()=>validateRequest('open_downloaded_file',{taskId:'a',path:'C:\\evil.exe'}));
+  assert.throws(()=>validateRequest('reveal_downloaded_file',{path:'C:\\evil.exe'}));
+  assert.throws(()=>validateRequest('check_downloaded_files',{taskIds:'a'}));
+  assert.throws(()=>validateRequest('check_downloaded_files',{taskIds:[1,2]}));
+  assert.throws(()=>validateRequest('file_attachment_preview',{versionId:'v',url:'file:///etc/passwd'}));
+});

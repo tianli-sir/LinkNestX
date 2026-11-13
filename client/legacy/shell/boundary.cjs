@@ -11,6 +11,8 @@ const COMMANDS = Object.freeze({
   start_attachment_upload:['groupId','sourceHandle','clientAttachmentId','fileId'],
   start_document_attachment_upload:['documentId','sourceHandle','clientAttachmentId','fileId'],
   document_attachment_preview:['documentId','versionId'],
+  file_attachment_preview:['versionId'], file_attachment_thumb:['versionId'],
+  open_downloaded_file:['taskId'], reveal_downloaded_file:['taskId'], check_downloaded_files:['taskIds'],
   set_profile_avatar:['sourceHandle'], profile_avatar:['userId'],
   get_transfer_preferences:[], set_transfer_preferences:['preferences'],
   reserve_audit_export:[],export_audit:['exportId','format','action'],cancel_audit_export:['exportId'],
@@ -26,6 +28,11 @@ function validateRequest(command,args={}) {
     if(!['GET','POST','PUT','PATCH','DELETE'].includes(args.method)||typeof args.path!=='string'||!args.path.startsWith('/api/v1/'))throw new Error('请求无效');
     const route=args.path.split('?')[0].replace(/\/$/,'');
     if(/[\\%#\x00-\x1f]/.test(route)||route.includes('//')||route.split('/').some(x=>x==='.'||x==='..')||['/api/v1/auth/login','/api/v1/auth/logout','/api/v1/auth/refresh'].includes(route))throw new Error('请求路径无效');
+  }
+  // Id arrays must be exactly that: a bounded array of identifier strings. The
+  // renderer can never smuggle a path or coerce the native bulk check.
+  if(command==='check_downloaded_files') {
+    if(!Array.isArray(args.taskIds)||args.taskIds.length>200||args.taskIds.some(x=>typeof x!=='string'||!x.length||x.length>128))throw new Error('请求无效');
   }
   return JSON.parse(serialized);
 }
