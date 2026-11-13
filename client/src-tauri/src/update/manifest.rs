@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 pub const MAX_ENVELOPE: usize = 8 * 1024 * 1024 + 1024;
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const BLOCK_BYTES: u64 = 262144;
-pub const BUILD_SEQUENCE: u64 = 4;
+pub const BUILD_SEQUENCE: u64 = 5;
 pub fn bad(message: &str) -> TransferError {
     TransferError::new(format!("更新验证失败：{message}"))
 }
