@@ -99,13 +99,13 @@ openapi 同步 + user-guide 管理小节补一句。
   8. `DELETE FROM users WHERE id=?`（profiles/sessions/devices/user_roles/message_reads/peer_sources 经 FK CASCADE 清掉）
   9. 审计 `account.deleted`（actor_id=admin，detail 记被删 username）
   10. 广播：`profile.changed{userId}` + 每个受影响会话 `conversation.changed`
-- 群主处理：目标是群主（groups.created_by 指向）→ `UPDATE groups SET created_by=DELETED_USER_ID`（群主位显示"已注销用户"；**不做群主转移**——企业场景管理员可另行管理群）
+- 群主处理：**目标是其创建的所有群 → 群解散**。事务内对每个 `groups.created_by=?` 的群：向该群插入一条系统消息「<群名>已随群主账号注销而解散」（复用既有 appendSystemMessage，冻结语义），删除 `group_members` 全部行、`direct_conversations` 无涉、`DELETE FROM groups` 行。**群内已上传文件不删**：files/file_versions 行保留（第 4 步已把 created_by 改指占位行），文件走既有 30 天生命周期/管理员管理；群消息（含文件消息）随群删除（与现有"删群"行为的消息语义一致——groups 删除后消息不可达，文件实体与版本记录仍在）。解散的群广播 `conversation.changed`。
 
 ### 客户端
 AdminView 行按钮"删除账号"（红色危险样式，仅非 admin 用户行显示）→ 确认弹窗要求**输入该用户名**确认 → POST → 列表刷新。user-guide 增补"删除账号"小节（说明匿名保留与不可恢复）。
 
 ### 测试
-- 服务端：删除矩阵（普通用户成功/消息匿名化/文件归属/好友双向清理/私聊双侧消失/群主群保留/不能删自己/不能删管理员/占位行幂等/审计/事件）；占位用户登录被拒
+- 服务端：删除矩阵（普通用户成功/消息匿名化/文件归属/好友双向清理/私聊双侧消失/群主群解散且文件保留/不能删自己/不能删管理员/占位行幂等/审计/事件）；占位用户登录被拒
 - 客户端：确认弹窗流程 vitest
 
 ---
