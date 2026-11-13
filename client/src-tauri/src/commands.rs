@@ -568,6 +568,97 @@ pub async fn document_attachment_preview(
 }
 
 #[tauri::command]
+pub async fn file_attachment_preview(
+    state: tauri::State<'_, NativeState>,
+    version_id: String,
+) -> Result<String> {
+    use base64::Engine;
+    crate::transfer::models::segment(&version_id)?;
+    let owner = state.auth.owner().await?;
+    let response = state
+        .auth
+        .request_for(
+            &owner,
+            "GET",
+            &format!("/api/v1/files/{version_id}/preview"),
+            None,
+            false,
+        )
+        .await?;
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .to_owned();
+    if !matches!(
+        mime.as_str(),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+    ) {
+        return Err(TransferError::new("此附件不支持图片预览"));
+    }
+    let bytes = crate::auth::session::limited_body(response, 256 * 1024 * 1024).await?;
+    if state.auth.owner().await? != owner {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    Ok(format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+#[tauri::command]
+pub async fn file_attachment_thumb(
+    state: tauri::State<'_, NativeState>,
+    version_id: String,
+) -> Result<String> {
+    use base64::Engine;
+    crate::transfer::models::segment(&version_id)?;
+    let owner = state.auth.owner().await?;
+    let response = state
+        .auth
+        .request_for(
+            &owner,
+            "GET",
+            &format!("/api/v1/files/{version_id}/thumb"),
+            None,
+            false,
+        )
+        .await?;
+    // The server redirects oversized or undecodable sources to the original
+    // image; reqwest follows it, so the payload is whatever the client can
+    // scale in CSS.
+    let mime = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .to_owned();
+    if !matches!(
+        mime.as_str(),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+    ) {
+        return Err(TransferError::new("缩略图不可用"));
+    }
+    let bytes = crate::auth::session::limited_body(response, 20 * 1024 * 1024).await?;
+    if state.auth.owner().await? != owner {
+        return Err(TransferError::new("登录账户已更改"));
+    }
+    Ok(format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+#[tauri::command]
 pub fn get_update_status(
     updater: tauri::State<'_, Arc<crate::update::UpdateService>>,
 ) -> crate::update::UpdateStatus {

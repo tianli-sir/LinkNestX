@@ -19,6 +19,8 @@ fn main() {
                 "start_attachment_upload",
                 "start_document_attachment_upload",
                 "document_attachment_preview",
+                "file_attachment_preview",
+                "file_attachment_thumb",
                 "open_external_url",
                 "set_profile_avatar",
                 "profile_avatar",

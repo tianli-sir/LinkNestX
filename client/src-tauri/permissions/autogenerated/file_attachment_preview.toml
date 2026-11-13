@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-file-attachment-preview"
+description = "Enables the file_attachment_preview command without any pre-configured scope."
+commands.allow = ["file_attachment_preview"]
+
+[[permission]]
+identifier = "deny-file-attachment-preview"
+description = "Denies the file_attachment_preview command without any pre-configured scope."
+commands.deny = ["file_attachment_preview"]

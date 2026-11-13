@@ -121,6 +121,8 @@ fn main() {
             commands::start_attachment_upload,
             commands::start_document_attachment_upload,
             commands::document_attachment_preview,
+            commands::file_attachment_preview,
+            commands::file_attachment_thumb,
             commands::open_external_url,
             commands::set_profile_avatar,
             commands::profile_avatar,
