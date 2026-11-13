@@ -36,6 +36,15 @@ test('read acknowledgements retry while still visible and stop retrying after lo
  vi.useFakeTimers();const send=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(['m1']);const tracker=new VisibleReadTracker(send);tracker.setEnabled(true);tracker.visible('m1',true);await vi.advanceTimersByTimeAsync(401);expect(send).toHaveBeenCalledTimes(1);await vi.advanceTimersByTimeAsync(1800);expect(send).toHaveBeenCalledTimes(2);tracker.dispose();
  const offline=vi.fn().mockRejectedValue(new Error('offline'));const second=new VisibleReadTracker(offline);second.setEnabled(true);second.visible('m2',true);await vi.advanceTimersByTimeAsync(401);second.setEnabled(false);await vi.advanceTimersByTimeAsync(10000);expect(offline).toHaveBeenCalledTimes(1);second.dispose();vi.useRealTimers();
 });
+test('rest errors expose HTTP status for both transports',async()=>{
+ const failing=async()=>new Response(JSON.stringify({error:'bad'}),{status:400,headers:{'Content-Type':'application/json'}});
+ const browser=createBrowserTransport(failing as typeof fetch);
+ const rest=new (await import('../src/api/rest')).RestClient(browser);
+ try{await rest.request('POST','/api/v1/conversations/c/read',{messageIds:['m1']});throw new Error('should reject')}catch(e){expect((e as any).status).toBe(400);expect((e as any).message).toBe('bad')}
+ const native=(await import('../src/api/rest')).createNativeTransport((async()=>{throw {error:'server rejected',status:422}}) as never);
+ const rest2=new (await import('../src/api/rest')).RestClient(native);
+ try{await rest2.request('POST','/api/v1/conversations/c/read',{});throw new Error('should reject')}catch(e){expect((e as any).status).toBe(422)}
+});
 test('browser socket connects to the authenticated API namespace without credentials in URL',async()=>{
  const urls:string[]=[];vi.stubGlobal('WebSocket',class{constructor(url:string){urls.push(url)}close(){}});const {createBrowserAdapter}=await import('../src/runtime/browserAdapter');const adapter=createBrowserAdapter();const remove=await adapter.listen('server.event',()=>{});expect(new URL(urls[0]).pathname).toBe('/api/v1/ws');expect(new URL(urls[0]).search).toBe('');remove();vi.unstubAllGlobals();
 });

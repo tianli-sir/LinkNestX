@@ -16,7 +16,7 @@ export interface NativeTransport extends ApiTransport {
 }
 
 export class ApiError extends Error {
-  constructor(message: string) {
+  constructor(message: string, public readonly status?: number) {
     super(message);
     this.name = "ApiError";
   }
@@ -71,7 +71,7 @@ export function createNativeTransport(invokeCommand: Invoke = desktopInvoke): Na
     try {
       return await invokeCommand<T>(command, args);
     } catch (error) {
-      throw new ApiError(apiErrorMessage(error));
+      throw new ApiError(apiErrorMessage(error), (error as { status?: number })?.status ?? undefined);
     }
   };
   return {
@@ -91,7 +91,7 @@ export class RestClient {
     try {
       return await this.transport.request<T>(method, path, body);
     } catch (error) {
-      throw new ApiError(apiErrorMessage(error));
+      throw new ApiError(apiErrorMessage(error), (error as { status?: number })?.status ?? undefined);
     }
   }
 }
