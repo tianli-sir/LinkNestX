@@ -43,7 +43,7 @@ export function GroupsView({ client, user, initialGroupId = "", initialTab }: {
     setMembershipRevision(value => value + 1);
   };
   useDesktopEvent("server.event", event => {
-    if (["session.ready","membership.changed"].includes(event.type))
+    if (["session.ready","membership.changed","nickname.changed"].includes(event.type))
       refreshGroups();
   });
   const current = groups.data?.find(group => group.id === selected) ?? groups.data?.[0];
