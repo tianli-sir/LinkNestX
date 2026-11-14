@@ -367,10 +367,47 @@ func (s *Service) Delete(ctx context.Context, actor, other string) error {
 		return e
 	}
 	lo, hi := pair(actor, other)
-	if _, e := s.db.ExecContext(ctx, `DELETE FROM friendships WHERE pair_low=? AND pair_high=?`, lo, hi); e != nil {
+	tx, e := s.db.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.ExecContext(ctx, `DELETE FROM friendships WHERE pair_low=? AND pair_high=?`, lo, hi); e != nil {
+		return e
+	}
+	// Only the pair's direct conversations go: shared group memberships stay.
+	// The groups row itself is retained because files hold RESTRICT foreign
+	// keys to it; with members and the direct row gone it is unreachable.
+	direct := []string{}
+	if rows, e := tx.QueryContext(ctx, `SELECT group_id FROM direct_conversations WHERE pair_low=? AND pair_high=?`, lo, hi); e == nil {
+		for rows.Next() {
+			var id string
+			if rows.Scan(&id) == nil {
+				direct = append(direct, id)
+			}
+		}
+		rows.Close()
+	}
+	for _, id := range direct {
+		if _, e = tx.ExecContext(ctx, `DELETE FROM messages WHERE group_id=?`, id); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id=?`, id); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, `DELETE FROM direct_conversations WHERE group_id=?`, id); e != nil {
+			return e
+		}
+	}
+	if e = tx.Commit(); e != nil {
 		return e
 	}
 	s.contactsChanged(lo, hi)
+	if s.hub != nil {
+		for _, id := range direct {
+			s.hub.NotifyConversation(id, chat.Event{Type: "conversation.changed"})
+		}
+	}
 	return nil
 }
 func (s *Service) contactsChanged(lo, hi string) {

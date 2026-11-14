@@ -142,7 +142,8 @@ func TestSocialFriendDirectIsolationAndExactReads(t *testing.T) {
 	expectCode(t, f.req("DELETE", "/api/v1/contacts/"+f.bob.User.ID, "", f.alice), 204)
 	expectCode(t, f.req("POST", path+"/messages", `{"clientMessageId":"after","body":"blocked"}`, f.alice), 403)
 	expectCode(t, f.req("POST", "/api/v1/groups/"+id+"/messages", `{"clientMessageId":"bypass","body":"blocked"}`, f.alice), 403)
-	expectCode(t, f.req("GET", path+"/messages", "", f.alice), 200)
+	// 批次 3：删除好友连带删除私聊会话，旧会话读取变为 403（非成员）。
+	expectCode(t, f.req("GET", path+"/messages", "", f.alice), 403)
 }
 
 func TestDirectFilesDenyAdminManagementAndPeerSources(t *testing.T) {
@@ -180,7 +181,8 @@ func TestDirectFilesDenyAdminManagementAndPeerSources(t *testing.T) {
 	expectCode(t, f.req("DELETE", "/api/v1/contacts/"+f.bob.User.ID, "", f.alice), 204)
 	payload, _ := json.Marshal(files.StartUploadInput{GroupID: id, Name: "no", Size: 0, SHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"})
 	expectCode(t, f.req("POST", "/api/v1/files/uploads", string(payload), f.alice), 403)
-	expectCode(t, f.req("GET", "/api/v1/file-versions/"+v.VersionID+"/manifest", "", f.alice), 200)
+	// 批次 3：direct 行删除后旧私聊文件不可达（行保留但 ACL 拒绝），见计划偏离 3。
+	expectCode(t, f.req("GET", "/api/v1/file-versions/"+v.VersionID+"/manifest", "", f.alice), 403)
 }
 
 func TestAcceptedRequestCannotRestoreDeletedFriendship(t *testing.T) {
@@ -193,6 +195,51 @@ func TestAcceptedRequestCannotRestoreDeletedFriendship(t *testing.T) {
 	expectCode(t, f.req("DELETE", "/api/v1/contacts/"+f.bob.User.ID, "", f.alice), 204)
 	expectCode(t, f.req("POST", "/api/v1/friend-requests/"+id+"/accept", "{}", f.bob), 400)
 	expectCode(t, f.req("POST", "/api/v1/conversations/direct", `{"userId":"`+f.bob.User.ID+`"}`, f.alice), 403)
+}
+
+func TestDeleteFriendRemovesDirectConversationAndMessages(t *testing.T) {
+	f := newSocialFixture(t)
+	direct := f.direct(t)
+	shared := fixtureGroup(t, f)
+	expectCode(t, f.req("POST", "/api/v1/conversations/"+direct+"/messages", `{"clientMessageId":"dm1","body":"私聊内容"}`, f.alice), 201)
+	expectCode(t, f.req("DELETE", "/api/v1/contacts/"+f.bob.User.ID, "", f.alice), 204)
+	// 幂等：再删一次不存在的友谊仍是 204。
+	expectCode(t, f.req("DELETE", "/api/v1/contacts/"+f.bob.User.ID, "", f.alice), 204)
+	for _, s := range []auth.Session{f.alice, f.bob} {
+		w := f.req("GET", "/api/v1/conversations", "", s)
+		expectCode(t, w, 200)
+		if strings.Contains(w.Body.String(), direct) {
+			t.Fatalf("direct conversation still listed: %s", w.Body)
+		}
+		if !strings.Contains(w.Body.String(), shared) {
+			t.Fatalf("shared group missing after friend delete: %s", w.Body)
+		}
+	}
+	// 旧会话读写均拒绝（非成员，403；见计划偏离 1）。
+	expectCode(t, f.req("GET", "/api/v1/conversations/"+direct+"/messages", "", f.alice), 403)
+	expectCode(t, f.req("POST", "/api/v1/conversations/"+direct+"/messages", `{"clientMessageId":"dm2","body":"nope"}`, f.alice), 403)
+	var messages int
+	if e := f.a.Database().QueryRow(`SELECT count(*) FROM messages WHERE group_id=?`, direct).Scan(&messages); e != nil || messages != 0 {
+		t.Fatalf("direct messages not deleted: n=%d err=%v", messages, e)
+	}
+	// 重新加好友后建立全新私聊并可发消息（groups 旧行保留为新 uuid 不冲突）。
+	w := f.req("POST", "/api/v1/friend-requests", `{"accountNumber":"`+f.bob.User.AccountNumber+`"}`, f.alice)
+	expectCode(t, w, 201)
+	var r struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &r)
+	expectCode(t, f.req("POST", "/api/v1/friend-requests/"+r.ID+"/accept", "{}", f.bob), 200)
+	w = f.req("POST", "/api/v1/conversations/direct", `{"userId":"`+f.bob.User.ID+`"}`, f.alice)
+	expectCode(t, w, 200)
+	var fresh struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &fresh)
+	if fresh.ID == "" || fresh.ID == direct {
+		t.Fatalf("new direct conversation not recreated: %s", w.Body)
+	}
+	expectCode(t, f.req("POST", "/api/v1/conversations/"+fresh.ID+"/messages", `{"clientMessageId":"dm3","body":"hello again"}`, f.alice), 201)
 }
 
 func TestReceiptCountsFollowCurrentEntitlementAndRetention(t *testing.T) {
