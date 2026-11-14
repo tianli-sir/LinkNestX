@@ -14,10 +14,11 @@ import { TransfersView, TransferProvider, activeTransfer, useTransfers } from ".
 import { MessagingWorkspace } from "./messaging/MessagingWorkspace";
 import { ErrorNotice, Field } from "./shared";
 import { AnimatePresence, motion } from "framer-motion";
+import { Icon } from "../components/Icon";
 import { exitFade, viewInitial } from "../motion";
 import { NotificationProvider, NotificationCenter, NotificationToasts, ConnectionBanner, useNotificationPanelOpen } from "../runtime/NotificationProvider";
 export function WorkspaceRouter({desktopAdapter}: {desktopAdapter?:DesktopAdapter}) {
-  const { session, serverUrl, login, logout } = useAuth();
+  const { session, serverUrl, login, logout, restoring } = useAuth();
   const [error, setError] = useState("");
   const leave = async () => {
     try {
@@ -27,11 +28,14 @@ export function WorkspaceRouter({desktopAdapter}: {desktopAdapter?:DesktopAdapte
       setError(apiErrorMessage(error));
     }
   };
-  if (!session)
+  if (!session) {
+    if (restoring)
+      return <main className="ln-restore-splash" data-testid="restore-splash" role="status" aria-label="正在恢复登录"><span className="ln-brand-mark ln-spin"><Icon name="nest" size={26}/></span><p className="ln-muted">正在恢复登录…</p></main>;
     return <><ErrorNotice error={error}/><div data-testid="login-route"><LoginScreen onLogin={async (input) => {
       await login(input);
       setError("");
     }} showDownloadClient={desktopAdapter?desktopAdapter.kind==="browser":!isDesktop()} initialServerUrl={serverUrl} appVersion={window.__APP_VERSION__}/></div></>;
+  }
   if (session.user.mustChangePassword)
     return <PasswordChange onLogout={() => void leave()}/>;
   return <DesktopProvider key={session.id + session.user.id} adapter={desktopAdapter}><TransferProvider><NotificationProvider><Workspace onLogout={() => void leave()}/></NotificationProvider></TransferProvider></DesktopProvider>;

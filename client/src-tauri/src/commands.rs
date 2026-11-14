@@ -112,6 +112,20 @@ pub async fn login(
     Ok(session)
 }
 #[tauri::command]
+pub async fn session_restore(state: tauri::State<'_, NativeState>) -> Result<Session> {
+    let _guard = state.lifecycle.lock().await;
+    let session = state.auth.restore().await?;
+    state
+        .events
+        .emit("session.identity", serde_json::json!({"userId":session.user.id}));
+    state
+        .socket
+        .start(state.auth.clone(), state.events.clone())
+        .await;
+    state.transfers.restore_after_login().await?;
+    Ok(session)
+}
+#[tauri::command]
 pub async fn logout(state: tauri::State<'_, NativeState>) -> Result<()> {
     let _guard = state.lifecycle.lock().await;
     state.audit_exports.cancel_and_wait().await;

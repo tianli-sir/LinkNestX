@@ -128,6 +128,7 @@ fn main() {
             commands::profile_avatar,
             commands::app_version,
             commands::login,
+            commands::session_restore,
             commands::logout,
             commands::api_request,
             commands::reserve_audit_export,
