@@ -32,3 +32,13 @@ test('persistent messaging page leaves the accessibility tree while another view
   fireEvent.click(screen.getByRole('button', { name: '消息' }));
   expect(await screen.findByRole('button', { name: '周予' })).toBeInTheDocument();
 });
+
+test('conversation rows still filter instantly with motion wrappers', async () => {
+  const group = { id: 'g1', kind: 'group' as const, title: '项目组', memberCount: 3, unreadCount: 0, canSend: true };
+  loginApp(async (_method, path) => path === '/api/v1/conversations' ? [group, direct] : path === '/api/v1/contacts' ? { friends: [], incoming: [], outgoing: [] } : path.includes('/messages?') ? { messages: [], hasMore: false, nextCursor: '' } : []);
+  await screen.findByRole('button', { name: '项目组' });
+  fireEvent.click(screen.getByRole('button', { name: '仅看私聊' }));
+  expect(screen.queryByRole('button', { name: '项目组' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '仅看群聊' }));
+  expect(screen.queryByRole('button', { name: '周予' })).not.toBeInTheDocument();
+});

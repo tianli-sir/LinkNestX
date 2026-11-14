@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { motion } from "framer-motion";
+import { listInitial, MOTION_ENABLED } from "../motion";
 import { apiErrorMessage, type RestClient } from "../api/rest";
 import type { User } from "../auth";
 import { EmptyState } from "../components/EmptyState";
@@ -128,7 +130,7 @@ function MembersView({ client, user, groupId, members, canManage, directory }: {
       setBusy(false);
     }
   }
-  return <section className="ln-feature"><ErrorNotice error={members.error} retry={members.refresh}/><ErrorNotice error={error}/>{members.loading && <Loading />}<ul className="ln-data-list">{!members.loading && !members.error && members.data?.map(member => <MemberProfileRow key={member.userId} member={member} group={{ id: groupId }} me={user} client={client} online={presence[member.userId]} canManage={canManage} onRemove={() => setConfirm(member)}/>)}</ul>
+  return <section className="ln-feature"><ErrorNotice error={members.error} retry={members.refresh}/><ErrorNotice error={error}/>{members.loading && <Loading />}<ul className="ln-data-list">{!members.loading && !members.error && members.data?.map((member, index) => <motion.li key={member.userId} layout={MOTION_ENABLED} initial={listInitial(index)} animate={{opacity:1,y:0}}><MemberProfileRow member={member} group={{ id: groupId }} me={user} client={client} online={presence[member.userId]} canManage={canManage} onRemove={() => setConfirm(member)}/></motion.li>)}</ul>
  {confirm && canManage && <div className="ln-confirm" role="group" aria-label="确认移除成员"><p>确定移除该成员？该成员将失去本群访问权限。</p><div className="ln-actions"><button className="ln-button ln-button-danger" disabled={busy} onClick={() => void remove()}>确认移除</button><button className="ln-button ln-button-secondary" onClick={() => setConfirm(null)}>取消</button></div></div>}
  {canManage && <form className="ln-inline-form" onSubmit={add}><h3>添加或更新成员</h3><ErrorNotice error={directory.error} retry={directory.refresh}/>{directory.data ? <Field label="选择同事" id="member-id"><select id="member-id" value={userId} onChange={event => setUserId(event.target.value)} required><option value="">请选择同事</option>{directory.data.map(person => <option key={person.id} value={person.id}>{person.username}{person.email ? ` · ${person.email}` : ""}</option>)}</select></Field> : <Field label="成员账号 ID" id="member-id"><input id="member-id" value={userId} onChange={event => setUserId(event.target.value)} required/></Field>}<Field label="群组角色" id="member-role"><select id="member-role" value={role} onChange={event => setRole(event.target.value)}><option value="member">成员</option><option value="owner">群主</option></select></Field><button className="ln-button ln-button-primary" disabled={busy || !userId.trim()}>保存成员</button></form>}
 </section>;
