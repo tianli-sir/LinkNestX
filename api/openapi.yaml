@@ -989,6 +989,12 @@ paths:
       security: [{ bearerAuth: [] }, { webCookie: [] }]
         # Desktop Bearer also supported. Browser writes require CSRF and capability authorization.
         # See docs/next-release-contract.md for the exact browser allowlist.
+      description: >-
+        Removes the friendship and, for both sides in one transaction, deletes
+        the pair's direct conversation along with its messages and membership
+        rows. Shared group memberships are untouched and the empty groups row
+        stays for file foreign keys. Deleting a friendship that no longer
+        exists is idempotent.
       parameters:
         - { in: header, name: Origin, schema: { type: string }, description: Required exact same origin for browser requests }
         - { in: header, name: X-CSRF-Token, schema: { type: string }, description: Required for authenticated browser writes }
