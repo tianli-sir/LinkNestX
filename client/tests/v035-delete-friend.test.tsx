@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RestClient } from '../src/api/rest';
+import { AuthProvider } from '../src/auth';
 import { DesktopProvider, type DesktopAdapter } from '../src/runtime/DesktopProvider';
 import { ContactsView } from '../src/features/messaging/ContactsView';
+import { ProfilePanel } from '../src/features/messaging/Profile';
 
 afterEach(cleanup);
 const adapter: DesktopAdapter = { kind: 'browser', invoke: async <T,>() => null as T, listen: async () => () => {} };
@@ -42,4 +44,22 @@ it('keeps the friend when the server rejects the deletion', async () => {
   fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('网络暂时不可用');
   expect(screen.getByText('100002')).toBeInTheDocument();
+});
+
+it('deletes a friend from the profile panel and closes it', async () => {
+  let friends = [friend];
+  let closed = false;
+  const request = vi.fn(async (method: string, path: string): Promise<any> => {
+    if (path === '/api/v1/contacts') return { friends, incoming: [], outgoing: [] };
+    if (path === '/api/v1/profiles/u2') return friend;
+    if (method === 'DELETE' && path === '/api/v1/contacts/u2') { friends = []; return undefined; }
+    return null;
+  });
+  const transport = { request, login: async () => { throw new Error('not used'); }, logout: async () => {} };
+  render(<AuthProvider transport={transport as never}><DesktopProvider adapter={adapter}><ProfilePanel profile={friend} me={{ ...friend, id: 'u1', username: 'lin' }} client={new RestClient(transport as never)} onClose={() => { closed = true; }} onDirect={async () => {}} onChanged={() => {}}/></DesktopProvider></AuthProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: '删除好友' }));
+  expect(screen.getByRole('group', { name: '确认删除好友' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith('DELETE', '/api/v1/contacts/u2', undefined));
+  await waitFor(() => expect(closed).toBe(true));
 });
