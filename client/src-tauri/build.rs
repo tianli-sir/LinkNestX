@@ -26,6 +26,7 @@ fn main() {
                 "profile_avatar",
                 "app_version",
                 "login",
+                "session_restore",
                 "logout",
                 "api_request",
                 "reserve_audit_export",
