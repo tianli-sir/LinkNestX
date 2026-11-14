@@ -27,6 +27,7 @@ struct Server {
     changed: Arc<AtomicBool>,
     refreshes: Arc<AtomicUsize>,
     logout_error: Arc<AtomicBool>,
+    disabled: Arc<AtomicBool>,
 }
 fn user(changed: bool) -> Value {
     json!({"id":"alice-id","username":"alice","roles":["user"],"disabled":false,"mustChangePassword":!changed})
@@ -51,7 +52,9 @@ async fn refresh(
     }
     s.rotated.store(true, Ordering::SeqCst);
     s.refreshes.fetch_add(1, Ordering::SeqCst);
-    Ok(Json(session(true, s.changed.load(Ordering::SeqCst))))
+    let mut value = session(true, s.changed.load(Ordering::SeqCst));
+    value["user"]["disabled"] = Value::Bool(s.disabled.load(Ordering::SeqCst));
+    Ok(Json(value))
 }
 async fn logout(State(s): State<Server>, headers: HeaderMap) -> StatusCode {
     if s.logout_error.load(Ordering::SeqCst) {
@@ -149,6 +152,21 @@ impl Harness {
             .unwrap();
         assert_eq!(session.user.email, "");
     }
+    fn fresh_auth(&self) -> Arc<AuthManager> {
+        Arc::new(AuthManager::new(self.root.path()).unwrap())
+    }
+    fn session_files(&self) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(self.root.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("session-") && name.ends_with(".json"))
+            })
+            .collect()
+    }
 }
 
 #[tokio::test]
@@ -161,6 +179,10 @@ async fn go_shaped_session_without_optional_email_supports_login_and_refresh() {
         ""
     );
     assert_eq!(h.server.refreshes.load(Ordering::SeqCst), 1);
+    // The session file is DPAPI-sealed on Windows; macOS and the legacy shell
+    // intentionally persist plaintext behind 0600 (design decision), so the
+    // no-plaintext scan only applies where sealing is active.
+    #[cfg(all(windows, not(feature = "legacy-host")))]
     for entry in std::fs::read_dir(h.root.path()).unwrap() {
         let path = entry.unwrap().path();
         if path.is_file() {
@@ -236,4 +258,51 @@ async fn logout_failure_still_removes_local_credentials() {
     assert!(h.native.auth.logout().await.is_err());
     assert!(h.native.auth.current().await.is_err());
     h.native.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn persisted_session_restores_after_simulated_restart() {
+    let h = Harness::new().await;
+    h.login().await;
+    h.native.stop().await.unwrap();
+    assert_eq!(h.session_files().len(), 1);
+    // A brand-new AuthManager over the same data directory models a restart.
+    let auth = h.fresh_auth();
+    let session = auth.restore().await.unwrap();
+    assert_eq!(session.user.username, "alice");
+    assert_eq!(session.access_token, "fresh-access");
+    assert_eq!(h.server.refreshes.load(Ordering::SeqCst), 1);
+    assert_eq!(auth.current().await.unwrap().session.user.id, "alice-id");
+}
+
+#[tokio::test]
+async fn restore_rejects_revoked_refresh_and_removes_the_file() {
+    let h = Harness::new().await;
+    h.login().await;
+    h.server.revoked.store(true, Ordering::SeqCst);
+    h.native.stop().await.unwrap();
+    let auth = h.fresh_auth();
+    assert!(auth.restore().await.is_err());
+    assert!(h.session_files().is_empty(), "stale session file must be removed");
+    assert!(auth.current().await.is_err());
+}
+
+#[tokio::test]
+async fn restore_rejects_disabled_accounts_and_removes_the_file() {
+    let h = Harness::new().await;
+    h.login().await;
+    h.server.disabled.store(true, Ordering::SeqCst);
+    h.native.stop().await.unwrap();
+    let auth = h.fresh_auth();
+    assert!(auth.restore().await.is_err());
+    assert!(h.session_files().is_empty());
+}
+
+#[tokio::test]
+async fn logout_removes_the_persisted_session_file() {
+    let h = Harness::new().await;
+    h.login().await;
+    assert_eq!(h.session_files().len(), 1);
+    h.native.auth.logout().await.unwrap();
+    assert!(h.session_files().is_empty());
 }

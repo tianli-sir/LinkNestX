@@ -4,10 +4,12 @@ import { createRoot } from "react-dom/client";
 import type { NativeTransport } from "./api/rest";
 import { AuthProvider, type PreferenceStorage } from "./auth";
 import { WorkspaceRouter } from "./features/WorkspaceRouter";
+import { MotionProvider } from "./motion";
 import { DesktopProvider, type DesktopAdapter } from "./runtime/DesktopProvider";
 import "./styles.css";
 import "./styles/features.css";
 import "./styles/messaging.css";
+import "./styles/motion.css";
 const DEFAULT_VERSION = "0.3.0";
 declare global {
   interface Window {
@@ -23,7 +25,7 @@ export interface AppProps {
   storage?: PreferenceStorage;
 }
 export function App({ transport, desktop, storage }: AppProps = {}) {
-  return <ThemeProvider><AuthProvider transport={transport} storage={storage}><WorkspaceRouter desktopAdapter={desktop}/></AuthProvider></ThemeProvider>;
+  return <ThemeProvider><MotionProvider><AuthProvider transport={transport} storage={storage}><WorkspaceRouter desktopAdapter={desktop}/></AuthProvider></MotionProvider></ThemeProvider>;
 }
 const root = document.getElementById("root");
 if (root)

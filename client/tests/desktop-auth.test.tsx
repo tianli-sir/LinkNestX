@@ -209,6 +209,18 @@ describe("AuthProvider", () => {
     expect(login.mock.calls[1][0]).toEqual({ username: "chen", password: "secret" });
   });
 
+  it("restores through the native transport once without storing renderer credentials", async () => {
+    const storage = MemoryStorage();
+    const login = vi.fn();
+    const restore = vi.fn().mockResolvedValue(session);
+    const transport: NativeTransport = { restore, login, logout: vi.fn(async () => undefined), request: async <T,>() => undefined as T };
+    render(<AuthProvider storage={storage} transport={transport}><AuthConsumer /></AuthProvider>);
+    await waitFor(() => expect(screen.getByLabelText("当前用户")).toHaveTextContent("li"));
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(login).toHaveBeenCalledTimes(0);
+    expect([...storage.data.entries()]).toEqual([]);
+  });
+
 });
 
 describe("AppShell", () => {

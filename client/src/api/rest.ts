@@ -77,6 +77,7 @@ export function createNativeTransport(invokeCommand: Invoke = desktopInvoke): Na
   return {
     request: <T>(method: HttpMethod, path: string, body?: unknown) => call<T>("api_request", { method, path, body: body ?? null }),
     login: ({ username, password, deviceId }) => call<Session>("login", { username, password, ...(deviceId ? { deviceId } : {}) }),
+    restore: () => call<Session>("session_restore"),
     logout: () => call<void>("logout"),
   };
 }

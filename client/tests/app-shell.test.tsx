@@ -8,7 +8,9 @@ describe("app shell", () => {
 
   it("renders the real Chinese login and app version", async () => {
     render(<App />);
-
+    // jsdom is not the desktop, so the browser transport still attempts a web
+    // session restore first; the login form appears once that settles.
+    await screen.findByTestId("login-route");
     expect(screen.getByTestId("login-route")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "登录工作区" })).toBeInTheDocument();
     expect(screen.getByTestId("app-version")).toHaveTextContent("0.1.0-test");

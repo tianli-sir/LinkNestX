@@ -187,6 +187,8 @@ describe("device management", () => {
       throw new Error(`未提供响应 ${command} ${String(args?.path)}`);
     };
     render(<App transport={createNativeTransport(nativeInvoke)} desktop={{ invoke: nativeInvoke, listen: async () => () => undefined }} storage={{ getItem: () => null, setItem: () => undefined }} />);
+    // The native transport offers session_restore; wait out the (failing) startup restore before logging in.
+    await screen.findByTestId("login-route");
     fireEvent.change(screen.getByLabelText("账号"), { target: { value: "小林" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
