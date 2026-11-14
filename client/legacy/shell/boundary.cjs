@@ -3,7 +3,7 @@ const path = require('node:path');
 const COMMANDS = Object.freeze({
   app_version: [], client_configuration: [], get_background_status: [], get_connection_status: [], reconnect_connection: [],
   open_external_url: ['url'],
-  login: ['username','password','deviceId'], logout: [],
+  login: ['username','password','deviceId'], logout: [], session_restore: [],
   api_request: ['method','path','body'], send_server_event: ['event'],
   list_transfers: [], pause_transfer:['taskId'], resume_transfer:['taskId'],
   pick_upload_files: [], read_clipboard_attachments: [], discard_attachment:['sourceHandle'],

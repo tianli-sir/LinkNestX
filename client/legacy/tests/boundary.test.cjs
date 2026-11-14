@@ -39,3 +39,8 @@ test('image preview and file launch commands accept only identifiers', () => {
   assert.throws(()=>validateRequest('check_downloaded_files',{taskIds:[1,2]}));
   assert.throws(()=>validateRequest('file_attachment_preview',{versionId:'v',url:'file:///etc/passwd'}));
 });
+test('session restore is a no-argument renderer command', () => {
+  assert.doesNotThrow(() => validateRequest('session_restore', {}));
+  assert.throws(() => validateRequest('session_restore', {userId:'u'}));
+  assert.throws(() => validateRequest('session_restore', {path:'C:\\evil.exe'}));
+});

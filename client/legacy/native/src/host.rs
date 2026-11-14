@@ -126,6 +126,20 @@ impl Host {
                 logout?;
                 Ok(Value::Null)
             }
+            "session_restore" => {
+                let _guard = self.lifecycle.lock().await;
+                let session = self.auth.restore().await?;
+                self.events
+                    .emit("session.identity", json!({"userId":session.user.id}));
+                self.socket
+                    .start(self.auth.clone(), self.events.clone())
+                    .await;
+                self.transfers.restore_after_login().await?;
+                // Same stripped shape as "login": tokens never reach the renderer.
+                Ok(
+                    json!({"id":session.id,"user":session.user,"deviceId":session.device_id,"expiresAt":session.expires_at}),
+                )
+            }
             "api_request" => {
                 let a: ApiRequest = decode(args)?;
                 if !matches!(
@@ -654,6 +668,12 @@ mod tests {
             false
         );
         host.shutdown().await.unwrap();
+    }
+    #[tokio::test]
+    async fn session_restore_without_a_persisted_login_fails_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Host::open(root.path(), Arc::new(crate::events::NoopEvents)).unwrap();
+        assert!(host.dispatch("session_restore", json!({})).await.is_err());
     }
     #[tokio::test]
     async fn file_launch_commands_require_a_logged_in_owner() {
