@@ -1,3 +1,4 @@
+use super::secrets;
 use crate::{transfer::models::hash, Result, TransferError};
 use futures_util::StreamExt;
 use reqwest::{Client, Method, Response, Url};
@@ -47,6 +48,33 @@ impl NativeSession {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct StoredSession {
+    origin: String,
+    session: Session,
+}
+/// The most recently used session file wins when several accounts are stored.
+fn latest_session_file(root: &Path) -> Option<PathBuf> {
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !(name.starts_with("session-") && name.ends_with(".json")) {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .is_none_or(|(time, _)| modified >= *time)
+        {
+            best = Some((modified, entry.path()));
+        }
+    }
+    best.map(|(_, path)| path)
+}
 pub fn normalize_origin(value: &str) -> Result<String> {
     let text = value.trim();
     let with_scheme = if text.contains("://") {
@@ -146,6 +174,75 @@ impl AuthManager {
     pub async fn owner(&self) -> Result<String> {
         Ok(self.current().await?.owner())
     }
+    fn session_file(&self, owner: &str) -> PathBuf {
+        self.root.join(format!("session-{owner}.json"))
+    }
+    /// Atomic write (temp file + fsync + persist) of the encrypted session,
+    /// owner-scoped like the device file. Unix also pins 0600.
+    fn persist_session(&self, current: &NativeSession) -> Result<()> {
+        let payload = serde_json::to_vec(&StoredSession {
+            origin: current.origin.clone(),
+            session: current.session.clone(),
+        })?;
+        let sealed = secrets::protect(&payload)?;
+        let path = self.session_file(&current.owner());
+        let mut file = tempfile::NamedTempFile::new_in(&self.root)?;
+        use std::io::Write;
+        file.write_all(&sealed)?;
+        file.as_file().sync_all()?;
+        file.persist(&path)
+            .map_err(|_| TransferError::new("无法保存登录状态"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    }
+    /// Reads, validates and re-authenticates the newest stored login. Any
+    /// rejection removes the file so the next start goes straight to the
+    /// login screen instead of retrying dead credentials.
+    pub async fn restore(&self) -> Result<Session> {
+        let path = latest_session_file(&self.root)
+            .ok_or_else(|| TransferError::new("没有可恢复的登录"))?;
+        let stored: StoredSession = match std::fs::read(&path)
+            .map_err(TransferError::from)
+            .and_then(|sealed| secrets::unprotect(&sealed))
+            .and_then(|plain| serde_json::from_slice(&plain).map_err(TransferError::from))
+        {
+            Ok(value) => value,
+            Err(_) => {
+                let _ = std::fs::remove_file(&path);
+                return Err(TransferError::new("登录状态已失效"));
+            }
+        };
+        if stored.session.user.id.is_empty()
+            || stored.session.access_token.is_empty()
+            || stored.session.refresh_token.is_empty()
+            || stored.session.user.disabled
+        {
+            let _ = std::fs::remove_file(&path);
+            return Err(TransferError::new("登录状态已失效"));
+        }
+        let origin = self.login_origin(&stored.origin)?;
+        let _guard = self.refresh.lock().await;
+        let candidate = NativeSession {
+            origin,
+            session: stored.session,
+        };
+        // rotated() validates identity/device against the server and persists
+        // the refreshed tokens on success.
+        match self.rotated(&candidate).await {
+            Ok(current) => {
+                *self.state.write().await = Some(current.clone());
+                Ok(current.session)
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&path);
+                Err(error)
+            }
+        }
+    }
     pub async fn login(
         &self,
         origin: &str,
@@ -176,10 +273,12 @@ impl AuthManager {
         device_file
             .persist(&device_path)
             .map_err(|_| TransferError::new("无法保存设备标识"))?;
-        *self.state.write().await = Some(NativeSession {
+        let native = NativeSession {
             origin,
             session: session.clone(),
-        });
+        };
+        self.persist_session(&native)?;
+        *self.state.write().await = Some(native);
         Ok(session)
     }
     pub async fn logout(&self) -> Result<()> {
@@ -192,6 +291,7 @@ impl AuthManager {
             }
         };
         let old = self.state.write().await.take();
+        let owner = old.as_ref().map(|native| native.owner());
         if let Some(old) = old {
             tokio::time::timeout(Duration::from_secs(10), async {
                 let mut current = old;
@@ -216,6 +316,11 @@ impl AuthManager {
             .await
             .map_err(|_| TransferError::new("本地已退出，服务器会话注销超时"))??;
         }
+        // Rotation during the retry loop may have rewritten the file; remove
+        // it after the server exchange so logout always ends clean.
+        if let Some(owner) = owner {
+            let _ = std::fs::remove_file(self.session_file(&owner));
+        }
         Ok(())
     }
     async fn rotated(&self, current: &NativeSession) -> Result<NativeSession> {
@@ -234,10 +339,14 @@ impl AuthManager {
         {
             return Err(TransferError::new("会话身份无效"));
         }
-        Ok(NativeSession {
+        let next = NativeSession {
             origin: current.origin.clone(),
             session,
-        })
+        };
+        // Best effort: a failing disk must not fail an in-flight request, but
+        // a stale file would send an expired refresh token on next start.
+        let _ = self.persist_session(&next);
+        Ok(next)
     }
     pub async fn update_user(&self, owner: &str, user: User) -> Result<()> {
         let _guard = self.refresh.lock().await;
