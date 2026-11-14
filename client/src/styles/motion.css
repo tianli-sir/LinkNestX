@@ -1,0 +1,24 @@
+/* framer-motion owns enter/exit/drag transforms; CSS here owns hover/active
+   micro-interactions, dialog enter keyframes and stack layout. Never add
+   transform rules to framer-managed elements (inline styles would override). */
+.ln-stack{display:grid;flex:1;min-height:0;min-width:0}
+.ln-stack-layer{grid-area:1/1;min-height:0;min-width:0;display:flex;flex-direction:column}
+.ln-stack-layer[data-active="false"]{pointer-events:none}
+.ln-stack-page{overflow:auto}
+.ln-spin{animation:ln-spin 1s linear infinite}
+@keyframes ln-spin{to{transform:rotate(360deg)}}
+.ln-restore-splash{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+.ln-restore-splash .ln-brand-mark{width:52px;height:52px;border-radius:17px}
+@keyframes ln-fade-in{from{opacity:0}}
+@keyframes ln-pop-in{from{opacity:0;transform:scale(.96)}}
+/* radix Dialog enter (close unmounts instantly; see plan deviation 6). */
+.ln-dialog-overlay[data-state="open"]{animation:ln-fade-in var(--ln-motion-fast) ease-out}
+.ln-dialog[data-state="open"]{animation:ln-pop-in var(--ln-motion-fast) ease-out}
+/* Button press feedback for every ln-button without wrapping each one. */
+.ln-button:active:not(:disabled){transform:scale(.97)}
+/* Hover lift only on elements whose transform framer-motion never touches. */
+.doc-feed-card,.ln-transfer-card{transition:transform var(--ln-motion-fast) ease-out}
+@media(hover:hover){.doc-feed-card:hover,.ln-transfer-card:hover{transform:translateY(-2px)}}
+/* Touch devices have no hover: the swipe-delete entry button stays visible. */
+.im-row-delete{color:var(--ln-color-error)}
+@media(hover:none){.im-row-delete{display:inline-flex}}
