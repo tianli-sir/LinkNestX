@@ -42,3 +42,11 @@ test('conversation rows still filter instantly with motion wrappers', async () =
   fireEvent.click(screen.getByRole('button', { name: '仅看群聊' }));
   expect(screen.queryByRole('button', { name: '周予' })).not.toBeInTheDocument();
 });
+
+test('message bubbles render visible immediately after conversation open', async () => {
+  const message = { id: 'm1', sequence: 1, conversationId: 'c1', groupId: 'c1', senderId: peer.id, sender: peer, clientMessageId: 'm1', body: '你好', createdAt: '2026-11-14T01:00:00Z', cursor: 'm1', readCount: 0, readByMe: false };
+  loginApp(async (_method, path) => path === '/api/v1/conversations' ? [direct] : path === '/api/v1/contacts' ? { friends: [], incoming: [], outgoing: [] } : path.includes('/messages?') ? { messages: [message], hasMore: false, nextCursor: '' } : path.endsWith('/read') ? { messageIds: [] } : []);
+  fireEvent.click(await screen.findByRole('button', { name: '周予' }));
+  const bubble = await screen.findByText('你好');
+  expect(bubble).toBeVisible();
+});
